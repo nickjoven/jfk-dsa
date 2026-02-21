@@ -2,13 +2,13 @@
 
 **N. Joven**  
 February 2026  
-*Preprint â€” feedback welcome*
+*Preprint — feedback welcome*
 
 ---
 
 ## Abstract
 
-Current AI memory architectures treat knowledge as text to be searched. We argue this is a category error. We propose instead a content-addressed, distributed, durable knowledge substrate in which facts, relationships, and derived conclusions are typed nodes in a Merkle DAG. A live depth-scoring system governs how deeply any topic is traversed in a given reasoning cycle, calibrated continuously by information gain, recency, and structural centrality. The entire state of the substrate at any moment is resolvable from a single root hash, enabling trivial diffing, free audit history, structural contradiction detection, and fixed-point convergence as a natural termination signal. We argue this architecture eliminates the root causes of hallucination, context bloat, inconsistency, and cold-start failure in production AI systems â€” and that deployed at scale, it represents viable infrastructure for large-scale distributed reasoning across many agents and institutions. The component technologies all exist. The synthesis does not. We describe it here and release this document as prior art under CC0.
+Current AI memory architectures treat knowledge as text to be searched. We argue this is a category error. We propose instead a content-addressed, distributed, durable knowledge substrate in which facts, relationships, and derived conclusions are typed nodes in a Merkle DAG. A live depth-scoring system governs how deeply any topic is traversed in a given reasoning cycle, calibrated continuously by information gain, recency, and structural centrality. The entire state of the substrate at any moment is resolvable from a single root hash, enabling trivial diffing, free audit history, structural contradiction detection, and fixed-point convergence as a natural termination signal. We argue this architecture eliminates the root causes of hallucination, context bloat, inconsistency, and cold-start failure in production AI systems — and that deployed at scale, it represents viable infrastructure for large-scale distributed reasoning across many agents and institutions. The component technologies all exist. The synthesis does not. We describe it here and release this document as prior art under CC0.
 
 ---
 
@@ -36,7 +36,7 @@ The correct fix is not a better model. It is a better substrate.
 
 The primitive of the substrate is a typed node. Nodes represent facts, entities, relationships, events, derived conclusions, or agent observations. Each node is content-addressed: its identifier is a deterministic hash of its content and the hashes of its dependencies.
 
-This gives us several properties for free. Identity comparison becomes hash comparison â€” two nodes are identical if and only if their hashes match. Deduplication is automatic and structural: the same fact cannot be stored twice because it would produce the same hash. Verification is free: any node can be checked against its hash without trusting the storage layer.
+This gives us several properties for free. Identity comparison becomes hash comparison — two nodes are identical if and only if their hashes match. Deduplication is automatic and structural: the same fact cannot be stored twice because it would produce the same hash. Verification is free: any node can be checked against its hash without trusting the storage layer.
 
 Edges between nodes are typed and also hashed. The graph is a Merkle DAG. The root hash of the current graph is a single identifier that uniquely and verifiably describes the entire state of the knowledge base at a given moment.
 
@@ -48,7 +48,7 @@ The scoring function takes into account:
 
 - **Recency**: nodes whose hashes changed recently score higher
 - **Information gain**: nodes whose last traversal produced new downstream conclusions score higher
-- **Structural centrality**: nodes with high betweenness centrality â€” those that bridge otherwise disconnected subgraphs â€” score higher independent of recency
+- **Structural centrality**: nodes with high betweenness centrality — those that bridge otherwise disconnected subgraphs — score higher independent of recency
 - **Query relevance**: nodes adjacent to the current query entry point receive a temporary relevance boost that decays as traversal proceeds
 
 Depth scores govern how far the traversal engine walks from any given node before stopping. High-scoring nodes receive deep multi-hop traversal. Low-scoring nodes receive shallow or no traversal. The scoring process itself is cheap enough to run thousands of times per reasoning cycle, continuously updating the attention topology of the graph.
@@ -57,17 +57,17 @@ Depth scores govern how far the traversal engine walks from any given node befor
 
 Reasoning operations on the substrate are explicitly tiered by cost.
 
-**Tier 1 â€” trivial, run always**: compare hashes, check if a score crossed a threshold, increment a traversal counter, propagate a delta score to neighbors. These operations are essentially free. The substrate runs them continuously.
+**Tier 1 — trivial, run always**: compare hashes, check if a score crossed a threshold, increment a traversal counter, propagate a delta score to neighbors. These operations are essentially free. The substrate runs them continuously.
 
-**Tier 2 â€” moderate, run when triggered**: traverse a subgraph to a given depth, run a local consistency check, compute a derived value, merge two candidate nodes. These run when a Tier 1 operation flags something worth examining.
+**Tier 2 — moderate, run when triggered**: traverse a subgraph to a given depth, run a local consistency check, compute a derived value, merge two candidate nodes. These run when a Tier 1 operation flags something worth examining.
 
-**Tier 3 â€” expensive, run when earned**: deep multi-hop traversal, invoking a language model to reason over a retrieved subgraph, writing durable state, spawning a new agent. These run only when Tier 2 operations confirm that the expected information gain justifies the compute cost.
+**Tier 3 — expensive, run when earned**: deep multi-hop traversal, invoking a language model to reason over a retrieved subgraph, writing durable state, spawning a new agent. These run only when Tier 2 operations confirm that the expected information gain justifies the compute cost.
 
 This tiering is the substrate's implementation of an anytime algorithm: at any point in a reasoning cycle, the system has a valid current answer derived from whatever depth has been reached so far, and continues deepening only while the marginal value of additional traversal exceeds its cost.
 
 ### 2.4 The Delta Chain
 
-Each reasoning cycle that modifies the substrate produces a new root hash. The substrate does not store full snapshots between cycles â€” it stores the minimal delta: the set of nodes that were added, modified, or removed, plus the new root hash. The delta chain is the complete history of how the substrate evolved.
+Each reasoning cycle that modifies the substrate produces a new root hash. The substrate does not store full snapshots between cycles — it stores the minimal delta: the set of nodes that were added, modified, or removed, plus the new root hash. The delta chain is the complete history of how the substrate evolved.
 
 This gives us several properties that are otherwise expensive to engineer:
 
@@ -83,21 +83,21 @@ This gives us several properties that are otherwise expensive to engineer:
 
 A reasoning cycle over the substrate terminates naturally when running another cycle would produce the same root hash. The system has reached a fixed point: all depth scores have stabilized, all pending Tier 1 and Tier 2 operations have been processed, and no new information has emerged from the most recent traversals.
 
-The fixed point is not the end of useful operation â€” it is a resting state that awaits perturbation. An external event, a new agent observation, a world-state change, or a user query arrives and perturbs the system away from the fixed point. The speed at which the substrate finds the new fixed point is a direct measure of how well the depth scoring is calibrated.
+The fixed point is not the end of useful operation — it is a resting state that awaits perturbation. An external event, a new agent observation, a world-state change, or a user query arrives and perturbs the system away from the fixed point. The speed at which the substrate finds the new fixed point is a direct measure of how well the depth scoring is calibrated.
 
-Well-calibrated systems converge fast because their depth scores correctly direct compute toward genuinely uncertain or recently changed regions of the graph. Poorly calibrated systems thrash â€” spending expensive traversal on stable regions while missing genuine change elsewhere. The delta chain provides the feedback signal needed to improve calibration over time.
+Well-calibrated systems converge fast because their depth scores correctly direct compute toward genuinely uncertain or recently changed regions of the graph. Poorly calibrated systems thrash — spending expensive traversal on stable regions while missing genuine change elsewhere. The delta chain provides the feedback signal needed to improve calibration over time.
 
 ---
 
 ## 3. Why a Single Hash Is Sufficient
 
-If the substrate is fully deterministic and content-addressed, the entire current state of the knowledge base â€” every fact, every relationship, every depth score, every traversal history â€” is uniquely described by a single root hash. This has practical implications that extend beyond storage efficiency.
+If the substrate is fully deterministic and content-addressed, the entire current state of the knowledge base — every fact, every relationship, every depth score, every traversal history — is uniquely described by a single root hash. This has practical implications that extend beyond storage efficiency.
 
 Any agent at any point in time can reconstruct full context from a hash. There is no context window to stuff, no session state to maintain, no "remind me what we were discussing." An agent receiving a hash and a query has everything it needs to begin traversal.
 
-Multiple agents operating on the same substrate share a canonical world state. When one agent commits a delta, the new root hash is available to all agents immediately. Disagreements between agents are structurally visible as divergent hashes pointing to the same entity â€” not as implicit inconsistencies buried in separate context windows.
+Multiple agents operating on the same substrate share a canonical world state. When one agent commits a delta, the new root hash is available to all agents immediately. Disagreements between agents are structurally visible as divergent hashes pointing to the same entity — not as implicit inconsistencies buried in separate context windows.
 
-The hash is also the natural unit of trust in a distributed deployment. An institution contributing data to the substrate signs its deltas. A downstream consumer verifies those signatures against the hash chain. The provenance of any fact is a path through the delta chain to the signing institution. This is not an additional feature â€” it follows directly from the content-addressed structure.
+The hash is also the natural unit of trust in a distributed deployment. An institution contributing data to the substrate signs its deltas. A downstream consumer verifies those signatures against the hash chain. The provenance of any fact is a path through the delta chain to the signing institution. This is not an additional feature — it follows directly from the content-addressed structure.
 
 ---
 
@@ -121,7 +121,7 @@ The synthesis of these five research threads into a unified substrate architectu
 
 ## 5. The Compute Efficiency Argument
 
-The technical argument above is self-contained. This section makes the broader case for why it matters beyond correctness â€” specifically, why it matters for compute cost.
+The technical argument above is self-contained. This section makes the broader case for why it matters beyond correctness — specifically, why it matters for compute cost.
 
 Current production AI systems waste the majority of their inference budget on substrate failures rather than reasoning. The dominant cost categories are:
 
@@ -132,9 +132,9 @@ Current production AI systems waste the majority of their inference budget on su
 
 Each of these is a direct consequence of treating knowledge as text to be searched rather than structure to be traversed. They compound at scale: a multi-agent system in which each agent maintains its own ephemeral context and performs its own full retrieval pays these costs multiplicatively rather than once.
 
-The content-addressed substrate eliminates redundant retrieval by construction â€” identical facts hash identically and are never fetched twice. Depth scoring replaces top-k with structure-bounded traversal, reducing context to what is actually relevant. Contradiction detection happens at write time with no model involvement. The delta chain means any agent can resume from a prior fixed point rather than starting cold.
+The content-addressed substrate eliminates redundant retrieval by construction — identical facts hash identically and are never fetched twice. Depth scoring replaces top-k with structure-bounded traversal, reducing context to what is actually relevant. Contradiction detection happens at write time with no model involvement. The delta chain means any agent can resume from a prior fixed point rather than starting cold.
 
-The result is that inference compute concentrates on reasoning rather than substrate management. At scale, across many agents operating over a shared substrate, the reduction in wasted cycles is the primary practical argument for this architecture â€” not correctness alone, but the ratio of useful work to total compute.
+The result is that inference compute concentrates on reasoning rather than substrate management. At scale, across many agents operating over a shared substrate, the reduction in wasted cycles is the primary practical argument for this architecture — not correctness alone, but the ratio of useful work to total compute.
 
 ---
 
@@ -160,7 +160,7 @@ We have described a substrate architecture in which the entire state of a knowle
 
 The architecture eliminates deduplication overhead, makes consistency checking structural rather than inferential, provides audit history and causal legibility for free via the delta chain, and enables multiple agents to share canonical world state without synchronization overhead.
 
-The primary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead â€” the dominant sources of wasted compute in current production systems â€” are eliminated by construction rather than mitigated by tuning.
+The primary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning.
 
 All component technologies exist. The synthesis described here is, to the authors' knowledge, novel as a unified architecture. This document is released under CC0 as prior art. Build it.
 
@@ -174,7 +174,3 @@ All component technologies exist. The synthesis described here is, to the author
 - Sun, J. et al. (2024). Think-on-Graph: Deep and responsible reasoning of large language model on knowledge graph. *ICLR 2025*.
 - Protocol Labs (2015). IPFS: Content addressed, versioned, P2P file system. *arXiv:1407.3561*.
 - Torvalds, L. (2005). Git: distributed version control system. *git-scm.com*.
-
----
-
-*CC0 1.0 Universal â€” No rights reserved. This work is dedicated to the public domain.*
