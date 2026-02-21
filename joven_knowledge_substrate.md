@@ -162,7 +162,7 @@ The architecture eliminates deduplication overhead, makes consistency checking s
 
 The primary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning.
 
-All component technologies exist. The synthesis described here is, to the authors' knowledge, novel as a unified architecture. This document is released under CC0 as prior art. Build it.
+This document is released under CC0 as prior art.
 
 ---
 
