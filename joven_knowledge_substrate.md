@@ -160,7 +160,40 @@ The architecture eliminates deduplication overhead, makes consistency checking s
 
 The primary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning. Empirical quantification of these gains remains future work; the structural argument stands independent of specific benchmarks.
 
-The contribution of this paper is the synthesis. The component technologies — Merkle DAGs, depth-bounded graph traversal, anytime algorithms, durable execution patterns — are individually established. Unifying them into a single reasoning substrate that is content-addressed, depth-scored, delta-tracked, and convergence-terminated does not appear to exist in the literature. We describe it here and release this document as prior art under CC0.
+The contribution of this paper is the synthesis. The component technologies — Merkle DAGs, depth-bounded graph traversal, anytime algorithms, durable execution patterns — are individually established. Unifying them into a single reasoning substrate that is content-addressed, depth-scored, delta-tracked, and convergence-terminated does not appear to exist in the literature. We describe the architecture here, provide implementations at two levels of fidelity (§9), and release this document as prior art under CC0.
+
+---
+
+## 9. Implementations
+
+The architecture described in this paper has been realized at two levels of fidelity.
+
+### 9.1 Pedagogical Reference: `hello_world.ipynb`
+
+A minimal Python notebook included alongside this paper demonstrates the core substrate mechanics in approximately 200 lines. It implements typed content-addressed nodes (Entity, Relation, Derived), a Merkle DAG with root hash computation, delta chain tracking, and a simulated LLM for transitive reasoning. The notebook illustrates scoped recomputation — when a fact changes, only invalidated derivations (detected via Tier 1 hash comparison) trigger re-execution (Tier 3 LLM call) — and demonstrates fixed-point convergence with explicit cost savings over naive re-derivation.
+
+### 9.2 Production Implementation: Ket
+
+[Ket](https://github.com/njovens/ket) is a Rust workspace of nine crates that implements the full substrate architecture for multi-agent workflows. The mapping from paper concepts to implementation components is:
+
+| Paper Concept | Ket Component | Notes |
+|---|---|---|
+| Content-addressed nodes (§2.1) | **ket-cas** | BLAKE3 flat-file blob store; identical content = identical CID |
+| Merkle DAG, typed edges (§2.1) | **ket-dag** | Parent chains, soft links, lineage tracing, export/import bundles |
+| Depth scoring (§2.2) | **ket-score** | Four scoring dimensions (correctness, efficiency, style, completeness) with auto, peer, and human sources |
+| Tiered operations (§2.3) | **ket-score** | Auto-scoring via `cargo build/test/clippy` demonstrates the Tier 1 cache check → Tier 3 compute pattern |
+| Delta chain (§2.4) | **ket-sql** | Dolt versioned SQL mirror; full commit history with structural diff |
+| Fixed-point / single root hash (§2.5, §3) | **ket-dag** | `compute_root_hash()` over all nodes and edges; drift detection compares file hashes to stored CIDs |
+| Multi-agent coordination (§4) | **ket-agent** + **ket-mcp** | Agent registry, task lifecycle, subprocess spawning; 11 tools exposed over MCP (JSON-RPC) for Claude and other agents |
+
+Ket also introduces capabilities that extend the paper's scope:
+
+- **Code Document Object Model (ket-cdom):** Tree-sitter parsing for Rust and Python symbol extraction, representing code structure as content-addressed typed nodes consistent with the substrate's node philosophy.
+- **BLAKE3 parallelization:** Content addressing leverages BLAKE3's tree-hashing mode for parallel hashing of large artifacts, a performance consideration not addressed in the abstract architecture.
+- **Queryable SQL mirror:** Dolt provides Git-like versioning semantics over a relational schema, enabling SQL queries against the substrate state — useful for operations, debugging, and governance that the delta chain alone does not conveniently support.
+- **Python bindings (ket-py):** PyO3 bindings expose CAS and DAG operations to Python, enabling integration with ML pipelines and notebook-based workflows.
+
+These extensions emerged during implementation and suggest directions for future architectural refinement.
 
 ---
 
