@@ -1,6 +1,6 @@
 # A Content-Addressed Adaptive Knowledge Substrate for Distributed Epistemic Coordination
 
-**N. Joven**
+**N. Joven** ([ORCID: 0009-0008-0679-0812](https://orcid.org/0009-0008-0679-0812))
 February 2026
 *Preprint — feedback welcome*
 
@@ -212,13 +212,13 @@ The contribution of this paper is the synthesis. The component technologies — 
 
 The architecture described in this paper has been realized at two levels of fidelity.
 
-### 10.1 Pedagogical Reference: `hello_world.ipynb`
+### 10.1 Pedagogical Reference: [`hello_world.ipynb`](https://github.com/nickjoven/jfk-dsa/blob/main/hello_world.ipynb)
 
 A minimal Python notebook included alongside this paper demonstrates the core substrate mechanics in approximately 200 lines. It implements typed content-addressed nodes (Entity, Relation, Derived), a Merkle DAG with root hash computation, delta chain tracking, and a simulated LLM for transitive reasoning. The notebook illustrates scoped recomputation — when a fact changes, only invalidated derivations (detected via Tier 1 hash comparison) trigger re-execution (Tier 3 LLM call) — and demonstrates fixed-point convergence with explicit cost savings over naive re-derivation.
 
 ### 10.2 Production Implementation: Ket $|\psi\rangle$
 
-[Ket](https://github.com/njovens/ket) is a Rust workspace of nine crates that implements the full substrate architecture for multi-agent workflows. The mapping from paper concepts to implementation components is:
+[Ket](https://github.com/nickjoven/ket) is a Rust workspace of nine crates that implements the full substrate architecture for multi-agent workflows. The mapping from paper concepts to implementation components is:
 
 | Paper Concept | Ket Component | Notes |
 |---|---|---|
@@ -258,7 +258,7 @@ Song, P., Han, P., and Goodman, N. (2026). Large language model reasoning failur
 
 Sun, J., Xu, C., Tang, L., Wang, S., Lin, C., Gong, Y., Shum, H.-Y., and Guo, J. (2024). Think-on-Graph: Deep and responsible reasoning of large language model on knowledge graph. *International Conference on Learning Representations* (ICLR 2024). arXiv:2307.07697.
 
-Torvalds, L. (2005). Git: Distributed version control system. https://git-scm.com.
+Torvalds, L. (2005). Git: Distributed version control system. [https://git-scm.com](https://git-scm.com).
 
 ---
 
