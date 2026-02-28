@@ -1,18 +1,18 @@
 # A Content-Addressed Adaptive Knowledge Substrate for Distributed Epistemic Coordination
 
-**N. Joven**  
-February 2026  
+**N. Joven**
+February 2026
 *Preprint — feedback welcome*
 
 ---
 
 ## Abstract
 
-Current retrieval-augmented generation (RAG) systems represent knowledge as independently retrievable text fragments selected via embedding similarity. While effective for many tasks, this approach introduces structural limitations: relational information is fragmented across chunks, retrieval is guided by surface semantic similarity rather than typed dependency structure, and state is reconstructed ephemerally per session.
+Current retrieval-augmented generation (RAG) systems represent knowledge as independently retrievable text fragments selected via embedding similarity. While effective for many tasks, this approach introduces structural limitations: relational information is fragmented across chunks, retrieval is guided by surface semantic similarity rather than typed dependency structure, state is reconstructed ephemerally per session, and provenance — the record of where a conclusion came from and what supports it — is either absent or reconstructed forensically from logs.
 
-We propose a content-addressed, typed knowledge substrate in which facts and relations are represented as nodes in a Merkle directed acyclic graph (DAG). The substrate maintains a persistent, verifiable state identified by a single root hash. Traversal depth during reasoning is governed by a continuously updated scoring mechanism based on recency, structural centrality, and observed information gain. Reasoning cycles terminate when the root hash stabilizes, yielding a fixed-point convergence criterion.
+We propose a content-addressed, typed knowledge substrate in which facts and relations are represented as nodes in a Merkle directed acyclic graph (DAG). The substrate maintains a persistent, verifiable state identified by a single root hash. Traversal depth during reasoning is governed by a continuously updated scoring mechanism based on recency, structural centrality, and observed information gain. Reasoning cycles terminate when the root hash stabilizes, yielding a fixed-point convergence criterion. Provenance is structural: every conclusion's identity is computed from the identities of its premises, making derivation paths verifiable and tamper-evident by construction.
 
-We position this architecture as a systems-layer intervention addressing several failure modes identified in recent surveys of large language model (LLM) reasoning, including working-memory limitations, order sensitivity, and multi-agent verification breakdowns (Song et al., 2026). We do not modify model internals; rather, we externalize memory persistence, provenance, and traversal control into a deterministic substrate. The component technologies are individually established; the contribution is their integration into a unified reasoning infrastructure.
+We position this architecture as a systems-layer intervention addressing several failure modes identified in recent analyses of large language model (LLM) reasoning (Song et al., 2026). Models cannot reliably self-correct their own reasoning without external feedback (Huang et al., 2024), further motivating external structural intervention. We do not modify model internals; rather, we externalize memory persistence, provenance, and traversal control into a deterministic substrate. The component technologies are individually established; the contribution is their integration into a unified reasoning infrastructure.
 
 ---
 
@@ -28,7 +28,7 @@ Current RAG systems work by chunking documents into text, embedding those chunks
 
 **State is ephemeral.** Every session starts cold. Nothing learned during retrieval informs future retrieval. The substrate has no model of its own uncertainty, no memory of what was recently traversed, and no way to detect that it has already resolved a question confidently.
 
-Fine-tuning addresses none of these. It bakes knowledge into weights opaquely and permanently, making it impossible to update, audit, or inspect without retraining.
+Fine-tuning addresses none of these. It bakes knowledge into weights opaquely and permanently, making it impossible to update, audit, or inspect without retraining. Attempts at model-level self-correction fare no better: LLMs struggle to correct their own reasoning without external feedback, and their performance can degrade after self-correction attempts (Huang et al., 2024).
 
 The correct fix is not a better model. It is a better substrate.
 
@@ -92,51 +92,93 @@ The hash is also the natural unit of trust in a distributed deployment. An insti
 
 ---
 
-## 4. Interaction with Documented LLM Failure Modes
+## 4. Provenance as a First-Class Property
 
-Song et al. (2026) identify three broad categories of reasoning failures: (1) fundamental limitations such as working-memory constraints and proactive interference, (2) application-specific failures including multi-agent termination and verification breakdowns, and (3) robustness failures including order sensitivity and anchoring effects. The proposed substrate interacts with these categories at the systems level.
+In current AI systems, provenance — the complete record of where a conclusion came from, what evidence supports it, which agent produced it, and what transformations were applied — is either absent or reconstructed after the fact from logs. When a model produces a wrong answer, the question "why did it believe this?" has no structural answer. The best available response is to re-run the query with logging enabled and hope the failure reproduces. The substrate makes provenance structural rather than forensic.
 
-**Working memory and proactive interference.** In standard RAG systems, updated information competes with prior context within a fixed token window. In the proposed substrate, knowledge is externalized into a persistent content-addressed graph. Updates produce new nodes and new root hashes rather than competing for token attention. Recency-sensitive depth scoring biases traversal toward recently modified regions. This does not remove model-level working memory limits but reduces reliance on transient prompt state for knowledge persistence.
+Every node in the Merkle DAG encodes its own provenance by construction. A derived conclusion's hash is computed from the hashes of its parent nodes — the facts, observations, and intermediate reasoning steps that produced it. The derivation path is not metadata attached to a conclusion; it is the conclusion's identity. Change any upstream fact and the derived node's hash changes. The conclusion cannot silently persist after its premises have been invalidated.
 
-**Order sensitivity and anchoring.** The survey documents that logically equivalent prompts with different ordering can yield divergent outputs. In text-based retrieval systems, ordering of retrieved chunks introduces uncontrolled variation. In the proposed architecture, retrieved context corresponds to a typed subgraph rather than an arbitrary sequence of chunks. Subgraph serialization can be made deterministic (e.g., canonical topological ordering), reducing variance introduced by retrieval order. Anchoring effects internal to the model may remain, but extraneous ordering degrees of freedom at the systems layer are reduced.
+This has several concrete consequences.
 
-**Multi-agent termination and verification.** Multi-agent systems frequently fail to verify intermediate results or terminate prematurely. The survey emphasizes structured verification protocols as a mitigation strategy. The proposed architecture introduces a fixed-point convergence criterion: a reasoning cycle terminates when successive cycles produce identical root hashes. Because the entire substrate state is content-addressed, convergence is detectable via hash equality. This provides a substrate-level termination signal independent of agent self-assessment.
+**Auditability without instrumentation.** An external auditor can trace any node in the substrate back through its parent chain to the original observations, data sources, or agent actions that produced it. This trace is verifiable at every step via hash comparison. No logging framework is required; the DAG is the audit log.
+
+**Attribution across agents.** In multi-agent systems, each agent's contributions are identified by the agent field on the nodes it creates. When agents disagree, the disagreement is structurally visible: two nodes with the same semantic intent but different hashes, each traceable to the agent and evidence chain that produced it. Reconciliation becomes graph comparison rather than prompt archaeology.
+
+**Institutional trust boundaries.** In distributed deployments, institutions sign the deltas they contribute. A downstream consumer receiving a subgraph can verify not only that it has not been tampered with (hash verification) but who asserted each fact and when (signature chain). Provenance becomes the mechanism by which trust propagates through a shared knowledge base without requiring universal trust in a central authority.
+
+**Regulatory compliance.** Regulated industries — finance, healthcare, legal, defense — increasingly require explainability and traceability for AI-assisted decisions. The substrate satisfies these requirements by construction: the answer to "why did the system conclude X?" is always a concrete path through the DAG, not a post-hoc rationalization generated by the same model that produced the conclusion.
+
+Provenance in this architecture is not a feature layered on top. It is a consequence of content addressing. Any system that hashes its conclusions from its premises gets provenance for free. The contribution is recognizing this as a design principle and building the reasoning substrate around it.
 
 ---
 
-## 5. Relation to Existing Work
+## 5. Interaction with Documented LLM Failure Modes
+
+Song et al. (2026) identify categories of reasoning failures in large language models, including fundamental limitations such as working-memory constraints and proactive interference, application-specific failures including multi-agent termination and verification breakdowns, and robustness failures including order sensitivity and anchoring effects. The proposed substrate interacts with these categories at the systems level.
+
+**Working memory and proactive interference.** In standard RAG systems, updated information competes with prior context within a fixed token window. In the proposed substrate, knowledge is externalized into a persistent content-addressed graph. Updates produce new nodes and new root hashes rather than competing for token attention. Recency-sensitive depth scoring biases traversal toward recently modified regions. This does not remove model-level working memory limits but reduces reliance on transient prompt state for knowledge persistence.
+
+**Order sensitivity and anchoring.** Song et al. document that logically equivalent prompts with different ordering can yield divergent outputs. In text-based retrieval systems, ordering of retrieved chunks introduces uncontrolled variation. In the proposed architecture, retrieved context corresponds to a typed subgraph rather than an arbitrary sequence of chunks. Subgraph serialization can be made deterministic (e.g., canonical topological ordering), reducing variance introduced by retrieval order. Anchoring effects internal to the model may remain, but extraneous ordering degrees of freedom at the systems layer are reduced.
+
+**Multi-agent termination and verification.** Multi-agent systems frequently fail to verify intermediate results or terminate prematurely. Song et al. emphasize structured verification protocols as a mitigation strategy. The proposed architecture introduces a fixed-point convergence criterion: a reasoning cycle terminates when successive cycles produce identical root hashes. Because the entire substrate state is content-addressed, convergence is detectable via hash equality. This provides a substrate-level termination signal independent of agent self-assessment.
+
+**Self-correction limitations.** Huang et al. (2024) demonstrate that LLMs cannot reliably self-correct reasoning without external feedback. The substrate provides exactly this external structure: when a derived conclusion's upstream premises change, the hash mismatch is detected by Tier 1 operations and the affected derivations are flagged for recomputation. Correction is driven by structural invalidity, not by asking the model to evaluate its own outputs.
+
+---
+
+## 6. Relation to Existing Work
 
 This architecture synthesizes ideas from several active research areas that have not previously been unified.
 
-**GraphRAG and adaptive retrieval.** Recent work on graph-based retrieval augmented generation has demonstrated that structured knowledge traversal outperforms vector similarity retrieval for multi-hop reasoning tasks. ARK (Adaptive Retriever of Knowledge, Polonuer et al. 2026) introduces adaptive breadth-depth tradeoffs in knowledge graph traversal without pre-set hop limits. Our depth scoring system extends this to a live substrate property rather than a query-time heuristic, and grounds it in information-theoretic feedback from the delta chain.
+**GraphRAG and adaptive retrieval.** Recent work on graph-based retrieval augmented generation has demonstrated that structured knowledge traversal outperforms vector similarity retrieval for multi-hop reasoning tasks. ARK (Adaptive Retriever of Knowledge, Polonuer et al., 2026) introduces adaptive breadth-depth tradeoffs in knowledge graph traversal without pre-set hop limits. Our depth scoring system extends this to a live substrate property rather than a query-time heuristic, and grounds it in information-theoretic feedback from the delta chain.
 
 **Self-organizing knowledge graphs.** Buehler (2025) demonstrates that LLM-coupled recursive graph expansion produces scale-free networks with emergent hub structure, stable modularity, and sustained growth without saturation. Our architecture provides the durable, content-addressed substrate that such a system requires to persist across sessions and be shared across agents.
 
-**Content-addressed storage.** Git, IPFS, and related systems demonstrate that Merkle DAG structures enable cheap diffing, structural deduplication, and verifiable provenance at scale. These systems address storage and verification. We apply the same primitives to a live reasoning substrate, adding depth scoring and fixed-point dynamics as first-class properties.
+**Content-addressed storage.** Git (Torvalds, 2005), IPFS (Benet, 2014), and related systems demonstrate that Merkle DAG structures enable cheap diffing, structural deduplication, and verifiable provenance at scale. These systems address storage and verification. We apply the same primitives to a live reasoning substrate, adding depth scoring and fixed-point dynamics as first-class properties.
 
 **Durable execution.** Systems such as Temporal and Restate demonstrate that distributed stateful workflows can survive crashes, restarts, and time while remaining consistent. Our substrate requires a similar durability guarantee for the delta chain.
 
 **Anytime algorithms.** The tiered operation model is an instance of an anytime algorithm (Dean and Boddy, 1988): the system maintains a valid current answer at all times and improves it continuously until interrupted or until a fixed point is reached.
 
-**LLM reasoning failure taxonomies.** Song et al. (2026) survey reasoning failures across LLM architectures, identifying working-memory constraints, order sensitivity, and multi-agent coordination breakdowns as persistent categories. Section 4 maps our substrate mechanisms to their taxonomy. Sun et al. (2024) demonstrate that grounding LLM reasoning in knowledge graph traversal improves factual accuracy and reduces hallucination, providing empirical motivation for the graph-structured approach taken here.
+**LLM reasoning failure taxonomies.** Song et al. (2026) identify reasoning failure modes across LLM architectures, including working-memory constraints, order sensitivity, and multi-agent coordination breakdowns. Section 5 maps our substrate mechanisms to their taxonomy. Huang et al. (2024) demonstrate that models cannot self-correct without external feedback, motivating external structural intervention. Sun et al. (2024) demonstrate that grounding LLM reasoning in knowledge graph traversal improves factual accuracy and reduces hallucination, providing empirical motivation for the graph-structured approach taken here.
 
 The synthesis of these research threads into a unified substrate architecture does not appear to exist in the literature as of this writing.
 
 ---
 
-## 6. Compute Efficiency
+## 7. Reconcilable Truth and Compute Efficiency
 
-Current production AI systems waste a substantial portion of their inference budget on substrate failures rather than reasoning. The dominant cost categories are redundant retrieval (the same facts re-embedded, re-retrieved, and re-injected across sessions and agents because the substrate has no memory of prior resolution), context bloat (top-*k* chunk retrieval fills context windows with partially relevant material, forcing the model to spend tokens filtering noise rather than reasoning over signal), consistency repair (models expend compute detecting and resolving contradictions that a structural substrate would surface for free at write time), and cold-start overhead (every session re-establishes context from scratch, paying full retrieval cost regardless of how recently the same ground was covered).
+The primary argument for this architecture is not efficiency. It is correctness — specifically, the property that the substrate provides a single, reconcilable source of truth that any agent can verify, any auditor can trace, and any update can cleanly propagate through.
 
-Each of these is a direct consequence of treating knowledge as text to be searched rather than structure to be traversed. They compound at scale: a multi-agent system in which each agent maintains its own ephemeral context and performs its own full retrieval pays these costs multiplicatively rather than once.
+Current production systems lack this property. When two agents in a multi-agent pipeline reach different conclusions about the same entity, there is no structural mechanism to detect the inconsistency, determine which conclusion is better supported, or propagate a resolution. The inconsistency persists silently until a downstream failure surfaces it — often to an end user. The substrate eliminates this class of failure: contradictions are visible as divergent hashes on the same entity, each traceable through its provenance chain to the evidence that produced it. Resolution is graph reconciliation, not prompt engineering.
 
-The content-addressed substrate eliminates redundant retrieval by construction — identical facts hash identically and are never fetched twice. Depth scoring replaces top-*k* with structure-bounded traversal, reducing context to what is actually relevant. Contradiction detection happens at write time with no model involvement. The delta chain means any agent can resume from a prior fixed point rather than starting cold.
+Efficiency is the secondary argument, but it is the one that determines adoption at scale.
 
-The result is that inference compute concentrates on reasoning rather than substrate management. At scale, across many agents operating over a shared substrate, the reduction in wasted cycles is the primary practical argument for this architecture — not correctness alone, but the ratio of useful work to total compute. Empirical quantification of these gains in deployed systems remains future work, but the structural argument is independent of specific benchmarks: each of the four cost categories above is eliminated by the architecture's construction rather than mitigated by tuning.
+Current production AI systems waste a substantial portion of their inference budget on substrate failures rather than reasoning. These failures manifest as concrete operational costs.
+
+**Cold-start overhead.** Every session in a stateless system begins by reconstructing context from scratch. This occurs in practice whenever:
+
+- A user returns to a multi-turn task after a session timeout. The system re-retrieves, re-embeds, and re-reasons over the same material it resolved minutes or hours earlier.
+- An agent in a pipeline receives a task that a previous agent already partially resolved. The receiving agent has no access to the prior agent's intermediate state and reconstructs context from zero.
+- A nightly batch job processes documents that overlap substantially with the previous run. Each document is chunked, embedded, and retrieved independently, with no memory that the vast majority of the knowledge base is unchanged.
+- A model is swapped mid-workflow — for example, routing a subtask to a specialized model. The new model receives a text summary of prior context rather than a verifiable state, losing structure and provenance in the handoff.
+- A system scales horizontally by adding agent instances. Each new instance cold-starts independently, duplicating retrieval work already completed by existing instances operating on the same substrate.
+
+In each case, the substrate's delta chain eliminates the cold start. Any agent receiving a root hash and a query can resume from the last fixed point. Only nodes whose hashes have changed since the prior cycle require re-traversal. The unchanged portion of the graph — typically the vast majority — costs nothing to re-verify (Tier 1 hash comparison) and nothing to re-traverse.
+
+**Redundant retrieval.** The same facts are re-embedded, re-retrieved, and re-injected across sessions and agents because the substrate has no memory of prior resolution. Content addressing eliminates this by construction: identical facts hash identically and are never stored or fetched twice.
+
+**Context bloat.** Top-*k* chunk retrieval fills context windows with partially relevant material, forcing the model to spend tokens filtering noise rather than reasoning over signal. Depth scoring replaces top-*k* with structure-bounded traversal, reducing retrieved context to what is actually relevant as determined by recency, centrality, and information gain — not embedding similarity.
+
+**Consistency repair.** Models expend inference compute detecting and resolving contradictions that a structural substrate would surface at write time. In the content-addressed substrate, a fact cannot be written in two inconsistent forms without producing two different hashes. The inconsistency is visible immediately and cheaply, before any model is invoked.
+
+These costs compound multiplicatively in multi-agent systems where each agent maintains its own ephemeral context and performs its own full retrieval. The substrate pays them once — or, in the case of redundant retrieval and consistency repair, not at all.
+
+The structural argument is independent of specific benchmarks: each cost category above is eliminated by the architecture's construction rather than mitigated by tuning. Empirical quantification in deployed systems remains future work. But the directional claim requires no measurement: a system that never re-retrieves identical facts, never re-establishes known context, and never silently harbors contradictions will spend more of its compute budget on reasoning than one that does all three on every session.
 
 ---
 
-## 7. Open Problems
+## 8. Open Problems
 
 We have described an architecture. Several significant engineering and research problems remain open.
 
@@ -152,27 +194,29 @@ We have described an architecture. Several significant engineering and research 
 
 ---
 
-## 8. Conclusion
+## 9. Conclusion
 
-We have described a substrate architecture in which the entire state of a knowledge base is resolvable from a single content-addressed hash, reasoning depth is governed by a live scoring system continuously calibrated by information gain and structural centrality, and cycles converge naturally to fixed points that encode the system's current best understanding of the world.
+We have described a substrate architecture in which the entire state of a knowledge base is resolvable from a single content-addressed hash, reasoning depth is governed by a live scoring system continuously calibrated by information gain and structural centrality, provenance is structural rather than forensic, and cycles converge naturally to fixed points that encode the system's current best understanding of the world.
 
-The architecture eliminates deduplication overhead, makes consistency checking structural rather than inferential, provides audit history and causal legibility for free via the delta chain, and enables multiple agents to share canonical world state without synchronization overhead. The integration of these mechanisms with a documented taxonomy of LLM reasoning failures (Song et al., 2026) positions the substrate as a systems-layer intervention: it does not modify model internals, but externalizes memory persistence, provenance, and traversal control into infrastructure that addresses working-memory limitations, order sensitivity, and multi-agent verification breakdowns at the substrate level rather than the prompt level.
+The architecture provides a reconcilable source of truth: contradictions between agents surface as divergent hashes traceable through their respective provenance chains, and resolution propagates structurally through the graph. This is the primary argument for the architecture — efficiency gains are meaningless if the system's conclusions cannot be trusted, traced, and corrected.
 
-The primary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning. Empirical quantification of these gains remains future work; the structural argument stands independent of specific benchmarks.
+The architecture eliminates deduplication overhead, makes consistency checking structural rather than inferential, provides audit history and causal legibility for free via the delta chain, and enables multiple agents to share canonical world state without synchronization overhead. Every conclusion is traceable through the DAG to the observations, agents, and evidence that produced it (§4). The integration of these mechanisms with documented LLM reasoning failure modes (Song et al., 2026) and self-correction limitations (Huang et al., 2024) positions the substrate as a systems-layer intervention: it does not modify model internals, but externalizes memory persistence, provenance, and traversal control into infrastructure that addresses working-memory limitations, order sensitivity, and multi-agent verification breakdowns at the substrate level rather than the prompt level.
 
-The contribution of this paper is the synthesis. The component technologies — Merkle DAGs, depth-bounded graph traversal, anytime algorithms, durable execution patterns — are individually established. Unifying them into a single reasoning substrate that is content-addressed, depth-scored, delta-tracked, and convergence-terminated does not appear to exist in the literature. We describe the architecture here, provide implementations at two levels of fidelity (§9), and release this document as prior art under CC0.
+The secondary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning (§7). Empirical quantification of these gains remains future work; the structural argument stands independent of specific benchmarks.
+
+The contribution of this paper is the synthesis. The component technologies — Merkle DAGs, depth-bounded graph traversal, anytime algorithms, durable execution patterns — are individually established. Unifying them into a single reasoning substrate that is content-addressed, depth-scored, provenance-preserving, delta-tracked, and convergence-terminated does not appear to exist in the literature. We describe the architecture here, provide implementations at two levels of fidelity (§10), and release this document as prior art under CC0.
 
 ---
 
-## 9. Implementations
+## 10. Implementations
 
 The architecture described in this paper has been realized at two levels of fidelity.
 
-### 9.1 Pedagogical Reference: `hello_world.ipynb`
+### 10.1 Pedagogical Reference: `hello_world.ipynb`
 
 A minimal Python notebook included alongside this paper demonstrates the core substrate mechanics in approximately 200 lines. It implements typed content-addressed nodes (Entity, Relation, Derived), a Merkle DAG with root hash computation, delta chain tracking, and a simulated LLM for transitive reasoning. The notebook illustrates scoped recomputation — when a fact changes, only invalidated derivations (detected via Tier 1 hash comparison) trigger re-execution (Tier 3 LLM call) — and demonstrates fixed-point convergence with explicit cost savings over naive re-derivation.
 
-### 9.2 Production Implementation: Ket $|\psi\rangle$
+### 10.2 Production Implementation: Ket $|\psi\rangle$
 
 [Ket](https://github.com/njovens/ket) is a Rust workspace of nine crates that implements the full substrate architecture for multi-agent workflows. The mapping from paper concepts to implementation components is:
 
@@ -184,7 +228,8 @@ A minimal Python notebook included alongside this paper demonstrates the core su
 | Tiered operations (§2.3) | **ket-score** | Auto-scoring via `cargo build/test/clippy` demonstrates the Tier 1 cache check → Tier 3 compute pattern |
 | Delta chain (§2.4) | **ket-sql** | Dolt versioned SQL mirror; full commit history with structural diff |
 | Fixed-point / single root hash (§2.5, §3) | **ket-dag** | `compute_root_hash()` over all nodes and edges; drift detection compares file hashes to stored CIDs |
-| Multi-agent coordination (§4) | **ket-agent** + **ket-mcp** | Agent registry, task lifecycle, subprocess spawning; 11 tools exposed over MCP (JSON-RPC) for Claude and other agents |
+| Provenance (§4) | **ket-dag** + **ket-cas** | Parent chains encode derivation history; every node traceable to its evidence |
+| Multi-agent coordination (§5) | **ket-agent** + **ket-mcp** | Agent registry, task lifecycle, subprocess spawning; 11 tools exposed over MCP (JSON-RPC) for Claude and other agents |
 
 Ket also introduces capabilities that extend the paper's scope:
 
@@ -199,19 +244,21 @@ These extensions emerged during implementation and suggest directions for future
 
 ## References
 
-Buehler, M.J. (2025). Agentic deep graph reasoning yields self-organizing knowledge networks. *Journal of Materials Research*.
+Benet, J. (2014). IPFS — Content addressed, versioned, P2P file system. *arXiv preprint*, arXiv:1407.3561.
 
-Dean, T. and Boddy, M. (1988). An analysis of time-dependent planning. *AAAI*.
+Buehler, M.J. (2025). Agentic deep graph reasoning yields self-organizing knowledge networks. *Journal of Materials Research*, 40, 2204. arXiv:2502.13025.
 
-Polonuer, J. et al. (2026). Autonomous knowledge graph exploration with adaptive breadth-depth retrieval. *arXiv:2601.13969*.
+Dean, T. and Boddy, M. (1988). An analysis of time-dependent planning. *Proceedings of the AAAI Conference on Artificial Intelligence* (AAAI-88).
 
-Protocol Labs (2015). IPFS: Content addressed, versioned, P2P file system. *arXiv:1407.3561*.
+Huang, J., Chen, X., Mishra, S., Zheng, H.S., Yu, A.W., Song, X., and Zhou, D. (2024). Large language models cannot self-correct reasoning yet. *International Conference on Learning Representations* (ICLR 2024). arXiv:2310.01798.
 
-Song, Y. et al. (2026). A survey on the reasoning of large language models. *arXiv*.
+Polonuer, J., Vittor, L., Arango, I., Noori, A., Clifton, D.A., Del Corro, L., and Zitnik, M. (2026). Autonomous knowledge graph exploration with adaptive breadth-depth retrieval. *arXiv preprint*, arXiv:2601.13969.
 
-Sun, J. et al. (2024). Think-on-Graph: Deep and responsible reasoning of large language model on knowledge graph. *ICLR 2025*.
+Song, P., Han, P., and Goodman, N. (2026). Large language model reasoning failures. *arXiv preprint*, arXiv:2602.06176.
 
-Torvalds, L. (2005). Git: distributed version control system. *git-scm.com*.
+Sun, J., Xu, C., Tang, L., Wang, S., Lin, C., Gong, Y., Shum, H.-Y., and Guo, J. (2024). Think-on-Graph: Deep and responsible reasoning of large language model on knowledge graph. *International Conference on Learning Representations* (ICLR 2024). arXiv:2307.07697.
+
+Torvalds, L. (2005). Git: Distributed version control system. https://git-scm.com.
 
 ---
 
