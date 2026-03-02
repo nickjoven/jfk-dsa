@@ -12,6 +12,8 @@ Current retrieval-augmented generation (RAG) systems represent knowledge as inde
 
 We propose a content-addressed, typed knowledge substrate in which facts and relations are represented as nodes in a Merkle directed acyclic graph (DAG). The substrate maintains a persistent, verifiable state identified by a single root hash. Traversal depth during reasoning is governed by a continuously updated scoring mechanism based on recency, structural centrality, and observed information gain. Reasoning cycles terminate when the root hash stabilizes, yielding a fixed-point convergence criterion. Provenance is structural: every conclusion's identity is computed from the identities of its premises, making derivation paths verifiable and tamper-evident by construction.
 
+Consistency in the substrate is demand-driven: nodes carry no propagation cost while unqueried, and staleness is detected structurally at read time via hash comparison. This yields a scaling property in which the cost of consistency grows with query volume, not graph size.
+
 We position this architecture as a systems-layer intervention addressing several failure modes identified in recent analyses of large language model (LLM) reasoning (Song et al., 2026). Models cannot reliably self-correct their own reasoning without external feedback (Huang et al., 2024), further motivating external structural intervention. We do not modify model internals; rather, we externalize memory persistence, provenance, and traversal control into a deterministic substrate. The component technologies are individually established; the contribution is their integration into a unified reasoning infrastructure.
 
 ---
@@ -178,7 +180,41 @@ The structural argument is independent of specific benchmarks: each cost categor
 
 ---
 
-## 8. Open Problems
+## 8. Demand-Driven Consistency and Epistemic Thermodynamics
+
+The scaling question for any knowledge substrate is: what happens when the graph grows large? At ten thousand nodes, propagating depth score updates on every write becomes expensive. At a million nodes with high connectivity, it becomes intractable. A naïve consistency model — push updates outward from the point of change — pays costs proportional to graph size on every mutation, regardless of whether the affected nodes are ever queried again.
+
+We observe that the content-addressed structure already contains the solution. Staleness is always detectable at read time for free: a node's hash either matches its recorded dependencies or it does not. There is no need to propagate this information proactively. The query itself is the consistency mechanism.
+
+### 8.1 Consistency as a Read-Time Property
+
+When a query arrives and traversal begins, each visited node performs a Tier 1 hash check against its dependencies. If hashes match expectations, the node's depth score remains valid and traversal continues. If they diverge, the node is stale, and only the affected subgraph — the portion actually being traversed — is recomputed. Everything not touched by the current query pays zero consistency cost, regardless of how stale it may be.
+
+This inverts the conventional model. Consistency is demand-driven, not supply-driven. The substrate pays only for consistency it actively consumes. In a knowledge graph where reads are sparse relative to total graph size — which they almost always are — this is dramatically cheaper than any propagation-based alternative.
+
+The tradeoff is query-time latency when a traversal encounters a deeply stale subgraph. The tiered operation model (§2.3) mitigates this directly: Tier 1 detects staleness instantly, Tier 2 performs bounded recomputation, and if the information gain from deeper reconciliation does not justify Tier 3 cost, the system returns its best answer at current depth and flags the residual uncertainty. This is the anytime property (§2.3) applied to consistency itself.
+
+### 8.2 A Thermodynamic Analogy
+
+We note, with some self-consciousness about the metaphor, that this consistency model maps onto a thermodynamic frame — and that the analogy is more than decorative. The mapping is conceptually coherent enough to be operationally useful, even if calling it "epistemic thermodynamics" risks overstatement. Information is information, and the dynamics are structurally the same.
+
+Nodes have a natural resting state: cold. Cold is the low-energy default — no queries touch the node, no consistency work is performed, no compute is spent. A query is heat. Heat flows into the graph through traversal, warming the nodes it touches, forcing them to reconcile and update their depth scores. After the query completes, nodes cool back down. Nodes that nobody asks about remain frozen indefinitely, and this is correct — they will reveal their staleness the instant they are next observed.
+
+Under this frame, the depth score is temperature. Hot nodes — recently traversed, recently validated, high information gain — are expensive to maintain but epistemically current. Cold nodes — untouched, potentially stale, quiescent — are free. The scoring function behaves as a cooling equation: relevance decays over time like heat dissipation, and only a new query adds energy back into the system.
+
+This reframes the scaling story. The substrate does not become more expensive as it grows. It becomes colder. And cold is free. At any given moment, only a small working set of nodes — perhaps a few hundred out of tens of thousands — is warm. The rest are frozen potential: simultaneously stale and valid until observed, reconciling only on contact.
+
+### 8.3 Speed of Truth
+
+The thermodynamic frame also clarifies the fundamental consistency bound. When the rate of incoming epistemic events — new observations, agent commits, world-state changes — exceeds the rate at which updates can propagate through the graph, nodes downstream of those changes make decisions based on stale depth scores. Information moves faster than the speed of truth.
+
+In a propagation-based model, this is a correctness crisis: the system silently operates on invalid state. In the demand-driven model, it is a managed condition. Staleness is not invisible — it is structurally detectable at Tier 1 cost on every read. The system does not claim to be consistent. It knows exactly where it is inconsistent, and it reconciles on demand rather than in advance.
+
+The delta chain (§2.4) quantifies the staleness: the number of unreconciled deltas between a node's last validated state and the current root hash is the divergence metric. A cold node with high delta divergence is not wrong — it is unexamined. The distinction matters. Current RAG systems cannot make this distinction at all.
+
+---
+
+## 9. Open Problems
 
 We have described an architecture. Several significant engineering and research problems remain open.
 
@@ -190,11 +226,11 @@ We have described an architecture. Several significant engineering and research 
 
 **Governance and access control in distributed deployment.** In a multi-institution deployment, who can write deltas, who can read which subgraphs, and how are signing keys managed? The content-addressed structure provides the technical foundation for fine-grained provenance, but the governance layer is a social and institutional problem as much as a technical one.
 
-**Calibration of depth scores.** The feedback loop between traversal outcomes and depth score updates is described in principle here. The specific update rules, learning rates, and decay functions require empirical work.
+**Calibration of depth scores.** The demand-driven consistency model (§8) establishes that depth scores function as a cooling equation — relevance decays over time and is restored by query contact. The specific decay functions, rewarming rates, and the interaction between query frequency and score stability require empirical work. The thermodynamic frame suggests that calibration may be self-correcting in practice — frequently queried subgraphs stay warm and well-calibrated, while cold subgraphs need not be calibrated at all until touched — but this remains to be validated.
 
 ---
 
-## 9. Conclusion
+## 10. Conclusion
 
 We have described a substrate architecture in which the entire state of a knowledge base is resolvable from a single content-addressed hash, reasoning depth is governed by a live scoring system continuously calibrated by information gain and structural centrality, provenance is structural rather than forensic, and cycles converge naturally to fixed points that encode the system's current best understanding of the world.
 
@@ -202,21 +238,21 @@ The architecture provides a reconcilable source of truth: contradictions between
 
 The architecture eliminates deduplication overhead, makes consistency checking structural rather than inferential, provides audit history and causal legibility for free via the delta chain, and enables multiple agents to share canonical world state without synchronization overhead. Every conclusion is traceable through the DAG to the observations, agents, and evidence that produced it (§4). The integration of these mechanisms with documented LLM reasoning failure modes (Song et al., 2026) and self-correction limitations (Huang et al., 2024) positions the substrate as a systems-layer intervention: it does not modify model internals, but externalizes memory persistence, provenance, and traversal control into infrastructure that addresses working-memory limitations, order sensitivity, and multi-agent verification breakdowns at the substrate level rather than the prompt level.
 
-The secondary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning (§7). Empirical quantification of these gains remains future work; the structural argument stands independent of specific benchmarks.
+The secondary practical consequence is compute efficiency: inference cycles concentrate on reasoning rather than substrate management. Redundant retrieval, context bloat, consistency repair, and cold-start overhead — the dominant sources of wasted compute in current production systems — are eliminated by construction rather than mitigated by tuning (§7). The demand-driven consistency model (§8) ensures these efficiency properties scale: the cost of maintaining consistency grows with query volume, not graph size, because unqueried nodes pay zero consistency cost regardless of staleness. Empirical quantification of these gains remains future work; the structural argument stands independent of specific benchmarks.
 
-The contribution of this paper is the synthesis. The component technologies — Merkle DAGs, depth-bounded graph traversal, anytime algorithms, durable execution patterns — are individually established. Unifying them into a single reasoning substrate that is content-addressed, depth-scored, provenance-preserving, delta-tracked, and convergence-terminated does not appear to exist in the literature. We describe the architecture here, provide implementations at two levels of fidelity (§10), and release this document as prior art under CC0.
+The contribution of this paper is the synthesis. The component technologies — Merkle DAGs, depth-bounded graph traversal, anytime algorithms, durable execution patterns — are individually established. Unifying them into a single reasoning substrate that is content-addressed, depth-scored, provenance-preserving, delta-tracked, and convergence-terminated does not appear to exist in the literature. We describe the architecture here, provide implementations at two levels of fidelity (§11), and release this document as prior art under CC0.
 
 ---
 
-## 10. Implementations
+## 11. Implementations
 
 The architecture described in this paper has been realized at two levels of fidelity.
 
-### 10.1 Pedagogical Reference: [`hello_world.ipynb`](https://github.com/nickjoven/jfk-dsa/blob/main/hello_world.ipynb)
+### 11.1 Pedagogical Reference: [`hello_world.ipynb`](https://github.com/nickjoven/jfk-dsa/blob/main/hello_world.ipynb)
 
 A minimal Python notebook included alongside this paper demonstrates the core substrate mechanics in approximately 200 lines. It implements typed content-addressed nodes (Entity, Relation, Derived), a Merkle DAG with root hash computation, delta chain tracking, and a simulated LLM for transitive reasoning. The notebook illustrates scoped recomputation — when a fact changes, only invalidated derivations (detected via Tier 1 hash comparison) trigger re-execution (Tier 3 LLM call) — and demonstrates fixed-point convergence with explicit cost savings over naive re-derivation.
 
-### 10.2 Production Implementation: Ket $|\psi\rangle$
+### 11.2 Production Implementation: Ket $|\psi\rangle$
 
 [Ket](https://github.com/nickjoven/ket) is a Rust workspace of nine crates that implements the full substrate architecture for multi-agent workflows. The mapping from paper concepts to implementation components is:
 
