@@ -1,0 +1,59 @@
+%%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#1a1a2e', 'primaryTextColor': '#e0e0e0', 'lineColor': '#4fc3f7', 'secondaryColor': '#16213e'}}}%%
+
+graph TB
+    subgraph QUERY["⚡ QUERY ARRIVES"]
+        Q[Query Entry Point]
+    end
+
+    subgraph TIER1["TIER 1 — FREE (run always)"]
+        H1[Hash Check:<br/>node matches deps?]
+        H1 -->|"✓ match"| WARM[Node is warm<br/>depth score valid]
+        H1 -->|"✗ mismatch"| STALE[Staleness detected<br/>flag for recompute]
+    end
+
+    subgraph TIER2["TIER 2 — MODERATE (run when triggered)"]
+        RC[Bounded recompute<br/>of stale subgraph]
+        RC --> DS[Update depth scores<br/>on traversed nodes]
+    end
+
+    subgraph TIER3["TIER 3 — EXPENSIVE (run when earned)"]
+        LLM[Deep traversal /<br/>LLM reasoning]
+        LLM --> NEW[New nodes → DAG<br/>new root hash]
+    end
+
+    subgraph DAG["MERKLE DAG"]
+        direction LR
+        HOT["🔴 HOT NODES<br/>recently queried<br/>high depth score<br/>epistemically current"]
+        COOL["🟡 COOLING<br/>score decaying<br/>still cached"]
+        COLD["🔵 COLD NODES<br/>unqueried, zero cost<br/>stale until observed<br/>frozen potential"]
+    end
+
+    subgraph CONVERGENCE["FIXED POINT"]
+        FP["Root hash stabilizes<br/>→ cycle complete"]
+    end
+
+    Q --> H1
+    WARM --> |traverse deeper| H1
+    STALE --> RC
+    DS -->|"info gain justifies?"| LLM
+    DS -->|"return best answer<br/>at current depth"| FP
+    NEW --> FP
+    FP -->|"hash unchanged"| DONE["Resting state<br/>nodes cool down 🧊"]
+    FP -->|"hash changed"| H1
+
+    HOT -.->|"no queries<br/>= cooling"| COOL
+    COOL -.->|"time passes"| COLD
+    COLD -.->|"query touches<br/>= rewarming"| HOT
+
+    style QUERY fill:#4fc3f7,color:#000,stroke:#4fc3f7
+    style TIER1 fill:#1a1a2e,stroke:#4caf50,color:#e0e0e0
+    style TIER2 fill:#1a1a2e,stroke:#ff9800,color:#e0e0e0
+    style TIER3 fill:#1a1a2e,stroke:#f44336,color:#e0e0e0
+    style DAG fill:#0d1117,stroke:#4fc3f7,color:#e0e0e0
+    style CONVERGENCE fill:#1a1a2e,stroke:#ab47bc,color:#e0e0e0
+    style HOT fill:#b71c1c,color:#fff,stroke:#f44336
+    style COOL fill:#e65100,color:#fff,stroke:#ff9800
+    style COLD fill:#0d47a1,color:#fff,stroke:#4fc3f7
+    style DONE fill:#1b5e20,color:#fff,stroke:#4caf50
+    style Q fill:#4fc3f7,color:#000
+    style FP fill:#ab47bc,color:#fff
