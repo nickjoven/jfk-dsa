@@ -263,4 +263,6 @@ Torvalds, L. (2005). Git: Distributed version control system. [https://git-scm.c
 ---
 
 *This document is released under CC0 as prior art.*
-*"The author acknowledges the use of large language model assistants (Claude, Anthropic; ChatGPT, OpenAI; et al.) during manuscript development for discussion, structural feedback, and argumentation refinement."*
+
+*The author acknowledges the use of large language model assistants (Claude, Anthropic; ChatGPT, OpenAI; et al.) during manuscript development for discussion, structural feedback, and argumentation refinement."*
+
