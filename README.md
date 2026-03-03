@@ -34,7 +34,7 @@ This is a systems-layer intervention. We don't modify model internals; we extern
 
 ## Production implementation
 
-[**Ket**](https://github.com/nickjoven/ket) is a Rust workspace (9 crates) that implements the full architecture. It provides content-addressed storage (BLAKE3), a typed DAG with lineage tracing, multi-dimensional scoring, a Dolt-backed SQL mirror for the delta chain, multi-agent coordination, and 11 MCP tools for LLM integration.
+[**Ket**](https://github.com/nickjoven/ket) is a Rust workspace (10 crates) that implements the full architecture. It provides content-addressed storage (BLAKE3), a typed DAG with lineage tracing, multi-dimensional scoring, a Dolt-backed SQL mirror for the delta chain, multi-agent coordination, and 12 MCP tools for LLM integration.
 
 ## License
 
