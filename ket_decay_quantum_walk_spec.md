@@ -1,6 +1,6 @@
-# Architectural Change Proposal: Decay–Quantum Walk Coupling in Ket
+# Architectural Change Proposal: Decay Primitive with Localized Amplitude Entropy
 
-**Status:** Draft — theoretical specification
+**Status:** Draft — implementation specification
 **Theory home:** [`joven_knowledge_substrate.md §10`](joven_knowledge_substrate.md)
 **Implementation home:** [Ket](https://github.com/nickjoven/ket) Rust workspace
 **Author:** N. Joven · March 2026
@@ -9,15 +9,21 @@
 
 ## 1. Overview and Motivation
 
-Section §10 of the theoretical framework establishes two coupled hypotheses:
+Section §10 of the theoretical framework proposes two coupled hypotheses:
 
-- **H-QW**: In a substrate where node activations decay continuously and independently of traversal frequency, quantum walks are load-bearing (not merely useful) because their interference pattern retains topological orientation information even as individual activation magnitudes decay. Classical random walks lose this orientation as the landscape shifts under decay.
+- **H-QW**: In a substrate where node activations decay continuously, quantum walks are load-bearing because their interference pattern retains topological orientation information as individual activation magnitudes decay. Classical random walks lose this orientation as the landscape shifts.
 
-- **H-IC**: Destructive interference at nodes receiving contradictory high-activation paths from different directions functions as an intrinsic coherence mechanism — the substrate detects inconsistency geometrically, without an external oracle.
+- **H-IC**: Destructive interference at nodes receiving contradictory high-activation paths from different directions functions as an intrinsic coherence mechanism — the substrate detects inconsistency geometrically.
 
-Together these constitute a single coupled architectural primitive: **decay + quantum walk behavior**. Removing either renders the other insufficient.
+**H-QW and H-IC remain theoretical propositions.** Full quantum walk mechanics — complex amplitude vectors, Hamiltonian construction, matrix exponentiation — are not currently implemented. The quantum walk framing is retained as the theoretical motivation for the scoring signal described in §4, but the implementation of that signal does not require quantum walk machinery.
 
-This document specifies the concrete changes required to realize this primitive in the Ket Rust workspace. The framing throughout treats decay and quantum walk amplitude tracking as one feature with two surfaces, not two independent additions.
+**What this document specifies:**
+
+1. **Decay** (§3) — continuous activation decay on read, configurable per node. This is fully implementable and constitutes the primary primitive.
+
+2. **Localized amplitude entropy** (§4) — a classically computable proxy for the structural inconsistency signal that H-IC predicts quantum walk interference would reveal. It replaces `quantum_coherence` as the practical scoring signal until a quantum walk engine is warranted by evidence.
+
+Quantum walk implementation is deferred to a future proposal contingent on empirical evidence that localized amplitude entropy is insufficient to capture the H-IC signal.
 
 ---
 
@@ -27,22 +33,22 @@ This document specifies the concrete changes required to realize this primitive 
 
 | Crate | Change | Scope |
 |---|---|---|
-| **ket-score** | Add `decay_adjusted_activation` and `quantum_coherence` scoring dimensions; integrate decay into score computation | Medium |
-| **ket-dag** | Add `DecayConfig` field to node representation; add optional `QuantumAmplitude` runtime field | Medium |
-| **ket-mcp** | Add 4 new MCP tools; extend score response schema (breaking) | Medium |
-| **ket-opt** | Extend WQS optimizer for non-stationary landscapes; add concavity detection and fallback | Large |
+| **ket-score** | Add `amplitude_entropy` and `decay_adjusted_activation` scoring dimensions; integrate decay into score computation | Medium |
+| **ket-dag** | Add `DecayConfig` field to node representation | Small |
+| **ket-mcp** | Add 2 new MCP tools; extend score response schema (breaking) | Small |
+| **ket-opt** | Extend WQS optimizer for non-stationary landscapes; add concavity detection and fallback | Medium |
 
 ### Secondary (API compatibility updates only)
 
 | Crate | Change |
 |---|---|
 | **ket-agent** | Update score struct deserialization to accept 6-dimensional scores |
-| **ket-py** | Expose `DecayConfig`, `QuantumAmplitude`, and new MCP tools to Python bindings |
+| **ket-py** | Expose `DecayConfig` and new MCP tools to Python bindings |
 | **ket-sql** | Add `decay_half_life` and `last_activation_write` columns to node schema in Dolt mirror |
 
 ### Unchanged
 
-`ket-cas`, `ket-cdom` — no structural changes required. BLAKE3 addressing and Tree-sitter parsing are unaffected by decay or amplitude tracking.
+`ket-cas`, `ket-cdom` — no structural changes required. BLAKE3 addressing and Tree-sitter parsing are unaffected by decay or entropy scoring.
 
 ---
 
@@ -114,7 +120,7 @@ pub fn decayed_activation(
 
 ### 3.4 Node Schema Extension (`ket-dag`)
 
-The `KetNode` struct gains two fields:
+The `KetNode` struct gains one field:
 
 ```rust
 pub struct KetNode {
@@ -126,180 +132,80 @@ pub struct KetNode {
     pub parents: Vec<Blake3Cid>,
     // ... other existing fields ...
 
-    // --- new fields ---
+    // --- new field ---
     /// Per-node decay configuration. None falls back to graph-level defaults.
     pub decay_config: Option<DecayConfig>,
-
-    /// Quantum walk amplitude — ephemeral runtime state, not persisted to CAS.
-    /// Populated by the walk engine during an active walk session; None otherwise.
-    #[serde(skip)]
-    pub quantum_amplitude: Option<QuantumAmplitude>,
 }
 ```
-
-The `quantum_amplitude` field is tagged `#[serde(skip)]` — it is never hashed into the CID and never written to the CAS blob store. It is purely ephemeral runtime state owned by the walk engine. Walk snapshots (amplitude vectors at a given timestep) can be serialized separately as CAS blobs for reproducibility, but they are not part of the node's persistent identity.
 
 ---
 
-## 4. Quantum Walk Amplitude Representation (`ket-dag` + walk engine)
+## 4. Localized Amplitude Entropy (`ket-score`)
 
-### 4.1 Design
+### 4.1 Motivation
 
-The quantum walk operates over a subgraph extracted from the DAG at query time. The walk engine holds the amplitude vector externally (not inside individual nodes) and writes computed amplitudes into `node.quantum_amplitude` during a walk session for scoring access.
+H-IC predicts that a node receiving contradictory high-activation paths from structurally distinct graph regions will exhibit destructive interference under a quantum walk. The observable correlate, without running a quantum walk, is that such a node's neighbor activation distribution is **high-entropy**: activation is spread roughly evenly across many neighbors rather than concentrated on a few, indicating no dominant traversal direction and potential structural inconsistency.
 
-```rust
-/// Complex amplitude for a single node during a quantum walk session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuantumAmplitude {
-    /// Complex amplitude components: (real, imaginary)
-    pub amplitude: (f64, f64),
+Localized amplitude entropy operationalizes this as a purely classical, O(degree) computation over decay-adjusted neighbor activations.
 
-    /// Walk session identifier — allows distinguishing stale amplitudes
-    /// from prior sessions.
-    pub session_id: u64,
+### 4.2 Definition
 
-    /// Step number within the current session when this amplitude was last set.
-    pub step: u32,
-}
+For node `v` with neighbors `N(v)`, let `a_i` be the decay-adjusted activation of neighbor `i`.
 
-impl QuantumAmplitude {
-    /// Measurement probability: |amplitude|^2
-    pub fn probability(&self) -> f64 {
-        self.amplitude.0.powi(2) + self.amplitude.1.powi(2)
-    }
+```
+p_i = a_i / Σ a_j         (normalize to a distribution)
 
-    /// Phase angle in radians: atan2(im, re)
-    pub fn phase(&self) -> f64 {
-        self.amplitude.1.atan2(self.amplitude.0)
-    }
+H(v) = -Σ p_i · log(p_i)  (Shannon entropy, nats)
 
-    /// Magnitude: sqrt(re^2 + im^2)
-    pub fn magnitude(&self) -> f64 {
-        self.probability().sqrt()
-    }
-
-    /// Whether this amplitude belongs to the current session.
-    pub fn is_current(&self, current_session: u64) -> bool {
-        self.session_id == current_session
-    }
-}
+H_norm(v) = H(v) / log(|N(v)|)   (normalized to [0, 1]; 0 for |N(v)| = 1)
 ```
 
-### 4.2 Walk Engine
+- `H_norm(v) ≈ 0` — activation concentrated on one or few neighbors; clear dominant traversal direction
+- `H_norm(v) ≈ 1` — activation spread uniformly; no dominant direction; H-IC inconsistency signal
+
+Nodes with fewer than 2 neighbors receive `H_norm = 0.0` (no entropy signal possible).
+
+### 4.3 Implementation
 
 ```rust
-/// Continuous-time quantum walk engine over a Ket subgraph.
+/// Compute normalized localized amplitude entropy for node v.
 ///
-/// Evolution: ψ(t + Δt) = e^{-iHΔt} ψ(t)
-/// where H is the decay-weighted adjacency matrix of the subgraph.
-pub struct QuantumWalkEngine {
-    /// Current amplitude vector: index corresponds to node position in `nodes`.
-    pub psi: Vec<(f64, f64)>,  // (re, im) per node
-
-    /// Node ordering for this session (indices into psi).
-    pub nodes: Vec<Blake3Cid>,
-
-    /// Decay-weighted Hamiltonian matrix H (n × n, Hermitian).
-    /// H_{ij} = decay_adjusted_activation(j) * edge_weight(i,j) / norm
-    pub hamiltonian: Vec<Vec<f64>>,  // Real-valued for undirected/symmetrized graph
-
-    pub session_id: u64,
-    pub current_step: u32,
-}
-
-impl QuantumWalkEngine {
-    /// Advance the walk by one step using first-order unitary approximation.
-    /// For large Δt, use matrix exponentiation (batch mode).
-    ///
-    /// ψ_new ≈ (I - iHΔt)ψ, then renormalize.
-    pub fn step(&mut self, delta_t: f64) {
-        let n = self.psi.len();
-        let mut psi_new = vec![(0.0_f64, 0.0_f64); n];
-
-        for i in 0..n {
-            // Identity term: psi[i]
-            psi_new[i].0 += self.psi[i].0;
-            psi_new[i].1 += self.psi[i].1;
-
-            // -iHΔt term: for each j, -i * H[i][j] * Δt * psi[j]
-            // -i * (re + i*im) = im - i*re
-            for j in 0..n {
-                let h = self.hamiltonian[i][j] * delta_t;
-                let (re_j, im_j) = self.psi[j];
-                // -i * h * (re_j + i*im_j) = h*im_j - i*h*re_j
-                psi_new[i].0 += h * im_j;
-                psi_new[i].1 -= h * re_j;
-            }
-        }
-
-        // Renormalize
-        let norm: f64 = psi_new.iter().map(|(r, m)| r*r + m*m).sum::<f64>().sqrt();
-        if norm > 1e-12 {
-            for (r, m) in psi_new.iter_mut() {
-                *r /= norm;
-                *m /= norm;
-            }
-        }
-
-        self.psi = psi_new;
-        self.current_step += 1;
+/// `neighbor_activations`: decay-adjusted activations of v's direct neighbors.
+/// Returns H_norm ∈ [0.0, 1.0], or 0.0 if fewer than 2 neighbors.
+pub fn localized_amplitude_entropy(neighbor_activations: &[f64]) -> f64 {
+    let n = neighbor_activations.len();
+    if n < 2 {
+        return 0.0;
     }
 
-    /// Measurement probability at node index i.
-    pub fn probability(&self, i: usize) -> f64 {
-        let (r, m) = self.psi[i];
-        r*r + m*m
+    let total: f64 = neighbor_activations.iter().sum();
+    if total < 1e-12 {
+        return 0.0;
     }
 
-    /// Interference suppression ratio at node i relative to activation-predicted baseline.
-    /// Values near 0 = full constructive; values near 1 = full destructive interference.
-    pub fn interference_suppression(&self, i: usize, baseline_probability: f64) -> f64 {
-        if baseline_probability < 1e-12 {
-            return 0.0;
-        }
-        let measured = self.probability(i);
-        ((baseline_probability - measured) / baseline_probability).clamp(0.0, 1.0)
+    let entropy: f64 = neighbor_activations
+        .iter()
+        .filter(|&&a| a > 1e-12)
+        .map(|&a| {
+            let p = a / total;
+            -p * p.ln()
+        })
+        .sum();
+
+    let max_entropy = (n as f64).ln();
+    if max_entropy < 1e-12 {
+        0.0
+    } else {
+        (entropy / max_entropy).clamp(0.0, 1.0)
     }
 }
 ```
 
-### 4.3 Hamiltonian Construction
+### 4.4 Relationship to Quantum Walk Hypothesis
 
-The Hamiltonian is built from the decay-adjusted adjacency matrix of the subgraph at query time:
+Localized amplitude entropy is a proxy, not an implementation, of H-IC. It captures the same structural signal — contested activation from multiple directions — using only classical information available at query time. It does not model phase, interference, or unitary evolution.
 
-```rust
-pub fn build_hamiltonian(
-    subgraph: &[(Blake3Cid, Vec<(Blake3Cid, f64)>)],  // (node, [(neighbor, weight)])
-    node_activations: &[(Blake3Cid, f64)],             // decay-adjusted
-) -> Vec<Vec<f64>> {
-    let n = subgraph.len();
-    let mut h = vec![vec![0.0_f64; n]; n];
-    let act_map: std::collections::HashMap<_, _> = node_activations.iter().cloned().collect();
-
-    for (i, (_, neighbors)) in subgraph.iter().enumerate() {
-        for (nb_cid, base_weight) in neighbors {
-            if let Some(j) = subgraph.iter().position(|(c, _)| c == nb_cid) {
-                let activation = act_map.get(nb_cid).copied().unwrap_or(1.0);
-                // Symmetrize for Hermitian H: H[i][j] = H[j][i]
-                let w = base_weight * activation;
-                h[i][j] += w;
-                h[j][i] += w;
-            }
-        }
-    }
-
-    // Normalize by max edge weight to keep eigenvalues O(1)
-    let max_w = h.iter().flat_map(|row| row.iter()).cloned().fold(0.0_f64, f64::max);
-    if max_w > 1e-12 {
-        for row in h.iter_mut() {
-            for v in row.iter_mut() {
-                *v /= max_w;
-            }
-        }
-    }
-    h
-}
-```
+If empirical evidence shows that high-entropy nodes systematically correspond to genuine structural inconsistencies in the substrate, and that the entropy signal fails to discriminate cases that phase-sensitive interference would resolve, a quantum walk engine becomes warranted. That determination requires data that does not yet exist.
 
 ---
 
@@ -311,13 +217,13 @@ pub fn build_hamiltonian(
 
 ### 5.2 Required Additions
 
-**New dimension: `quantum_coherence`**
+**New dimension: `amplitude_entropy`**
 
-- **Definition:** `1.0 - interference_suppression_ratio(v)`
-- **Range:** `[0.0, 1.0]` — 1.0 = fully coherent, 0.0 = fully destructively interfered
-- **Source:** auto-computed from `QuantumWalkEngine::interference_suppression()`
-- **Tier 1 action:** If `quantum_coherence < coherence_threshold` (configurable, default 0.3), flag the node for Tier 2 consistency investigation
-- **Interpretation:** A low coherence score at node v means v is receiving contradictory high-activation paths from different graph regions — H-IC signal of structural inconsistency
+- **Definition:** `localized_amplitude_entropy(decay_adjusted_neighbor_activations)`
+- **Range:** `[0.0, 1.0]` — 0.0 = concentrated (coherent), 1.0 = uniform (contested)
+- **Source:** O(degree) computation at query time
+- **Tier 1 action:** If `amplitude_entropy > entropy_threshold` (configurable, default 0.75), flag the node for Tier 2 consistency investigation
+- **Interpretation:** High entropy at node v means v's neighbors have roughly equal decay-adjusted activations — no dominant traversal direction. This is the classical proxy for the H-IC inconsistency signal.
 
 **New dimension: `decay_adjusted_activation`**
 
@@ -331,7 +237,7 @@ pub fn build_hamiltonian(
 
 - **Current:** Betweenness centrality computed offline over unweighted graph
 - **Modified:** Decay-weighted betweenness centrality — shortest paths weighted by `decay_adjusted_activation` of intermediate nodes
-- **Rationale:** A high-centrality node that has decayed to near-floor activation should not receive the same traversal priority as a recently active high-centrality node. The decay-weighted version naturally suppresses dormant hubs.
+- **Rationale:** A high-centrality node that has decayed to near-floor activation should not receive the same traversal priority as a recently active high-centrality node.
 
 ### 5.3 Updated Score Struct
 
@@ -345,13 +251,13 @@ pub struct NodeScore {
     pub completeness: f64,
 
     // New dimensions
-    pub quantum_coherence: Option<f64>,         // None if no active walk session
-    pub decay_adjusted_activation: f64,         // Always present (= stored activation if no decay)
+    pub amplitude_entropy: f64,          // 0.0 if degree < 2; always present
+    pub decay_adjusted_activation: f64,  // Always present (= stored activation if no decay)
 }
 
 impl NodeScore {
     /// Composite traversal priority: weighted combination of all dimensions.
-    /// quantum_coherence gates traversal — low coherence raises priority for investigation.
+    /// High amplitude entropy raises investigation priority — consistent with H-IC.
     pub fn traversal_priority(&self) -> f64 {
         let base = 0.3 * self.correctness
             + 0.2 * self.efficiency
@@ -359,14 +265,16 @@ impl NodeScore {
             + 0.2 * self.completeness
             + 0.2 * self.decay_adjusted_activation;
 
-        // Low coherence = potentially inconsistent = higher investigation priority
-        let coherence_modifier = match self.quantum_coherence {
-            Some(c) if c < 0.3 => 1.5,  // destructive interference: boost priority
-            Some(c) if c < 0.6 => 1.1,  // mild interference: slight boost
-            _ => 1.0,
+        // High entropy = potentially inconsistent = higher investigation priority
+        let entropy_modifier = if self.amplitude_entropy > 0.75 {
+            1.5
+        } else if self.amplitude_entropy > 0.5 {
+            1.1
+        } else {
+            1.0
         };
 
-        base * coherence_modifier
+        base * entropy_modifier
     }
 }
 ```
@@ -377,19 +285,19 @@ impl NodeScore {
 
 ### 6.1 Core Issue
 
-The existing `ket-opt` WQS binary search finds optimal Lagrange multipliers under the assumption that the value function `f(k)` — expected information gain from k traversal steps — is concave in k (a condition guaranteed by the submodularity of information gain over spanning trees). This concavity is what makes the Aliens trick valid: the binary search over the single multiplier λ finds the globally optimal budget allocation.
+The existing `ket-opt` WQS binary search finds optimal Lagrange multipliers under the assumption that the value function `f(k)` — expected information gain from k traversal steps — is concave in k. This concavity is guaranteed by the submodularity of information gain over spanning trees.
 
-In a decaying landscape, `f(k, t)` is a function of both the traversal budget `k` and the query time `t`. The concavity property may fail in k at certain times because different nodes decay at different rates, creating a non-monotone information gain profile: spending one more traversal step may lead to a freshly activated high-value node at time t₁ but only to a near-floor decayed node at time t₂.
+In a decaying landscape, `f(k, t)` is a function of both the traversal budget `k` and the query time `t`. The concavity property may fail in k at certain times because different nodes decay at different rates, creating a non-monotone information gain profile.
 
 ### 6.2 Specific Implications
 
-**1. Time-indexed Lagrange multipliers.** The multiplier λ must be recomputed as the activation landscape shifts due to decay. For a substrate with half-lives on the order of hours and query latency on the order of seconds, λ is effectively stable within a single query. For half-lives on the order of minutes (aggressive decay), λ should be recomputed at the start of each query against the current decay-adjusted activations.
+**1. Time-indexed Lagrange multipliers.** The multiplier λ must be recomputed as the activation landscape shifts due to decay. For half-lives on the order of hours and query latency on the order of seconds, λ is effectively stable within a single query. For half-lives on the order of minutes, λ should be recomputed at the start of each query.
 
-**2. Decay-adjusted edge costs.** The DP formulation in the Aliens trick computes costs over the spanning tree induced by the DAG. Each edge cost now calls `decayed_activation()` at evaluation time rather than reading a stored weight. This adds an O(1) constant factor per edge per DP evaluation — negligible for the traversal sizes ket-opt currently targets.
+**2. Decay-adjusted edge costs.** The DP formulation computes costs over the spanning tree induced by the DAG. Each edge cost now calls `decayed_activation()` at evaluation time rather than reading a stored weight. This adds an O(1) constant factor per edge per DP evaluation.
 
-**3. Concavity detection under asymmetric decay.** When per-node half-lives are heterogeneous, the value function `f(k, t)` may become non-concave in k at specific budget levels. Detection heuristic: if two successive WQS binary search iterations converge to the same k with different λ, the value function is non-concave at that budget level. In this case, fall back to a bounded grid search over the budget range `[k_lo, k_hi]` identified by the binary search bounds.
+**3. Concavity detection under asymmetric decay.** When per-node half-lives are heterogeneous, `f(k, t)` may become non-concave in k. Detection heuristic: if two successive WQS binary search iterations converge to the same k with different λ, the value function is non-concave at that budget level. Fall back to a bounded grid search over `[k_lo, k_hi]`.
 
-**4. Skip-tier allocation under decay.** Current ket-opt assigns tier allocations (Active, Lazy, Skip) statically per query. Under decay, a previously Active node may have decayed to Skip-eligible between queries. Tier allocations must be re-evaluated at query time against current decay-adjusted activations, not cached from prior queries.
+**4. Skip-tier allocation under decay.** Tier allocations (Active, Lazy, Skip) must be re-evaluated at query time against current decay-adjusted activations, not cached from prior queries.
 
 ### 6.3 `DecayAwareOptimizer` Interface
 
@@ -418,7 +326,6 @@ impl DecayAwareOptimizer {
         match self.inner.wqs_search_with_weights(&decayed, budget_constraints) {
             Ok(alloc) => Ok(alloc),
             Err(OptError::ConcavityFailure { k_lo, k_hi }) => {
-                // Non-concave value function detected; fall back to grid search
                 self.grid_search_fallback(&decayed, budget_constraints, k_lo, k_hi)
             }
             Err(e) => Err(e),
@@ -437,16 +344,12 @@ impl DecayAwareOptimizer {
 
 ### 6.4 Concavity Analysis
 
-The concavity of `f(k)` is guaranteed when:
-1. Information gain is submodular (always holds for spanning-tree DP formulations)
-2. Edge weights are non-negative and fixed (violated under heterogeneous per-node decay)
-
-Condition 2 is violated precisely when different nodes have different decay rates. The degree of violation is proportional to the variance of decay rates across nodes in the active subgraph. In practice:
+Concavity of `f(k)` is guaranteed when edge weights are non-negative and fixed — violated under heterogeneous per-node decay. In practice:
 - **Homogeneous decay** (all nodes same half-life): concavity is preserved; standard WQS applies.
-- **Low-variance heterogeneous decay** (half-lives within 2× of each other): concavity degradation is mild; standard WQS with concavity check is sufficient.
+- **Low-variance heterogeneous decay** (half-lives within 2× of each other): degradation is mild; WQS with concavity check is sufficient.
 - **High-variance heterogeneous decay** (half-lives spanning orders of magnitude): concavity fails at multiple budget levels; grid search fallback is required.
 
-Recommendation: expose `decay_variance` as a diagnostic metric on `DecayAwareOptimizer`. Log a warning when `decay_variance > threshold` to signal that the grid search fallback will be invoked frequently.
+Expose `decay_variance` as a diagnostic metric on `DecayAwareOptimizer`. Log a warning when `decay_variance > threshold`.
 
 ---
 
@@ -454,148 +357,7 @@ Recommendation: expose `decay_variance` as a diagnostic metric on `DecayAwareOpt
 
 ### 7.1 New Tools (Non-Breaking Additions)
 
-Four new tools are added to the MCP stdio JSON-RPC interface. Existing tools are unchanged.
-
----
-
-**Tool: `walk_quantum`**
-
-Execute a continuous-time quantum walk from a start node for N steps.
-
-```json
-{
-  "name": "walk_quantum",
-  "description": "Execute a quantum walk from a start node. Returns amplitude vector and interference scores.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "start_node": { "type": "string", "description": "CID of the walk origin node" },
-      "steps": { "type": "integer", "description": "Number of walk steps", "default": 10 },
-      "delta_t": { "type": "number", "description": "Time increment per step", "default": 0.1 },
-      "max_subgraph_nodes": { "type": "integer", "description": "Limit subgraph size", "default": 50 },
-      "decay_override": {
-        "type": "object",
-        "description": "Override decay config for this walk only",
-        "properties": {
-          "half_life": { "type": "number" },
-          "activation_floor": { "type": "number" }
-        }
-      }
-    },
-    "required": ["start_node"]
-  }
-}
-```
-
-Response:
-```json
-{
-  "session_id": "u64",
-  "steps_completed": "u32",
-  "amplitudes": [
-    {
-      "node": "CID string",
-      "label": "node label",
-      "real": 0.0,
-      "imaginary": 0.0,
-      "probability": 0.0,
-      "phase_radians": 0.0,
-      "decay_adjusted_activation": 0.0,
-      "interference_suppression": 0.0,
-      "quantum_coherence": 0.0
-    }
-  ],
-  "global_coherence_score": 0.0,
-  "spectral_gap": 0.0
-}
-```
-
----
-
-**Tool: `walk_classical`**
-
-Execute a classical random walk for comparison against `walk_quantum`.
-
-```json
-{
-  "name": "walk_classical",
-  "description": "Execute a classical random walk under current decay-adjusted activations.",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "start_node": { "type": "string" },
-      "steps": { "type": "integer", "default": 10 },
-      "decay_override": { "type": "object" }
-    },
-    "required": ["start_node"]
-  }
-}
-```
-
-Response:
-```json
-{
-  "steps_completed": "u32",
-  "distribution": [
-    {
-      "node": "CID string",
-      "label": "node label",
-      "probability": 0.0,
-      "decay_adjusted_activation": 0.0
-    }
-  ],
-  "effective_spectral_gap": 0.0
-}
-```
-
----
-
-**Tool: `coherence_check`**
-
-Compute interference suppression at a target node, returning the contributing paths.
-
-```json
-{
-  "name": "coherence_check",
-  "description": "Compute interference suppression ratio at a node. Low coherence signals contradictory activation paths (H-IC, §10.3).",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "node": { "type": "string", "description": "CID of target node" },
-      "walk_session_id": { "type": "integer", "description": "Use amplitudes from this walk session" },
-      "depth": { "type": "integer", "description": "Path depth to trace", "default": 3 }
-    },
-    "required": ["node"]
-  }
-}
-```
-
-Response:
-```json
-{
-  "node": "CID string",
-  "quantum_coherence": 0.0,
-  "interference_suppression": 0.0,
-  "baseline_probability": 0.0,
-  "measured_probability": 0.0,
-  "contributing_paths": [
-    {
-      "path": ["CID", "CID", "CID"],
-      "path_labels": ["label", "label", "label"],
-      "amplitude_real": 0.0,
-      "amplitude_imaginary": 0.0,
-      "phase_radians": 0.0,
-      "constructive": true
-    }
-  ],
-  "verdict": "coherent | contested | inconsistent"
-}
-```
-
-The `verdict` field maps coherence score to a human-readable label:
-- `coherent`: `quantum_coherence >= 0.7`
-- `contested`: `0.3 <= quantum_coherence < 0.7`
-- `inconsistent`: `quantum_coherence < 0.3` — Tier 2 investigation recommended
+Two new tools are added to the MCP stdio JSON-RPC interface. Existing tools are unchanged.
 
 ---
 
@@ -640,6 +402,52 @@ Response:
 }
 ```
 
+---
+
+**Tool: `entropy_check`**
+
+Compute localized amplitude entropy at a target node, returning neighbor activation distribution.
+
+```json
+{
+  "name": "entropy_check",
+  "description": "Compute localized amplitude entropy at a node. High entropy signals contested activation from multiple directions — proxy for the H-IC inconsistency signal (§10.3).",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "node": { "type": "string", "description": "CID of target node" },
+      "depth": { "type": "integer", "description": "Neighbor depth to include", "default": 1 }
+    },
+    "required": ["node"]
+  }
+}
+```
+
+Response:
+```json
+{
+  "node": "CID string",
+  "amplitude_entropy": 0.0,
+  "neighbor_count": 4,
+  "neighbor_distribution": [
+    {
+      "node": "CID string",
+      "label": "neighbor label",
+      "decay_adjusted_activation": 0.0,
+      "weight": 0.0
+    }
+  ],
+  "verdict": "concentrated | mixed | contested"
+}
+```
+
+The `verdict` field:
+- `concentrated`: `amplitude_entropy < 0.35`
+- `mixed`: `0.35 <= amplitude_entropy < 0.75`
+- `contested`: `amplitude_entropy >= 0.75` — Tier 2 investigation recommended
+
+---
+
 ### 7.2 Breaking Changes
 
 **Score response schema extension (additive breaking change):**
@@ -657,21 +465,20 @@ After this change, it contains six:
   "style": 0.0,
   "completeness": 0.0,
   "decay_adjusted_activation": 0.0,
-  "quantum_coherence": null
+  "amplitude_entropy": 0.0
 }
 ```
 
-`quantum_coherence` is `null` when no active walk session exists (the common case for existing callers).
+Both new fields are always present (no nullable values in the common path).
 
 **Impact on existing clients:**
 - Clients using flexible deserialization (`serde_json::Value`, dict-based) are unaffected.
 - Clients deserializing to a fixed 4-field struct will fail with an unknown-field error.
-- **Mitigation:** Add `#[serde(deny_unknown_fields)]` stricter clients should use `#[serde(default)]` on the new fields. Clients built in Python via `ket-py` are unaffected if using dict access.
+- **Mitigation:** Strict clients should add `#[serde(default)]` on the new fields. Clients built in Python via `ket-py` are unaffected if using dict access.
 
 **No other breaking changes:**
 - Transport (stdio), framing (JSON-RPC 2.0), authentication, and tool discovery protocol are unchanged.
 - Existing tool input schemas are unchanged.
-- The new `walk_type` parameter discussed in §7.1 is optional with backward-compatible default (`classical`).
 
 ---
 
@@ -683,22 +490,21 @@ After this change, it contains six:
 3. Add `decay_adjusted_activation` to `NodeScore` — existing score consumers receive it as equal to `stored_activation` when no decay is configured
 4. Add `decay_status` MCP tool
 
-### Phase 2: Quantum walk engine (non-breaking)
-1. Implement `QuantumWalkEngine` and `QuantumAmplitude` in a new `ket-walk` crate or as a module within `ket-dag`
-2. Add `walk_quantum` and `walk_classical` MCP tools
-3. Add `coherence_check` MCP tool
-4. `quantum_coherence` remains `null` in `NodeScore` until an active walk session writes to nodes
+### Phase 2: Entropy scoring (score schema breaking change)
+1. Implement `localized_amplitude_entropy()` in `ket-score`
+2. Add `amplitude_entropy` field to `NodeScore`
+3. Integrate entropy modifier into `traversal_priority()`
+4. Add `entropy_check` MCP tool
+5. Update `ket-agent`, `ket-py` deserializers
+6. Bump MCP protocol version in tool manifest
 
-### Phase 3: Scoring integration (score schema breaking change)
-1. Add `quantum_coherence` field to `NodeScore`
-2. Integrate coherence into `traversal_priority()`
-3. Update `ket-agent`, `ket-py` deserializers
-4. Bump MCP protocol version in tool manifest
-
-### Phase 4: WQS optimizer extension
+### Phase 3: WQS optimizer extension
 1. Implement `DecayAwareOptimizer` wrapping existing `WqsOptimizer`
 2. Add concavity detection and grid-search fallback
 3. Add `decay_variance` diagnostic metric
+
+### Future (not in scope): Quantum walk engine
+If empirical data establishes that `amplitude_entropy` fails to capture genuine H-IC signals, implement `QuantumWalkEngine` with complex amplitude tracking, Hamiltonian construction, and phase-sensitive interference scoring. That work requires a separate proposal with supporting evidence.
 
 ---
 
