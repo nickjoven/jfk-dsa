@@ -21,16 +21,15 @@ This is a systems-layer intervention. We don't modify model internals; we extern
 | Fixed-point convergence via root hash stabilization | §2.5, §3 |
 | Structural provenance as a first-class property | §4 |
 | Demand-driven consistency and epistemic thermodynamics | §8 |
-| Activation decay and localized entropy as traversal scoring primitives | §10 |
+| Activation decay and localized entropy as traversal scoring primitives | §8, §11.3 |
 
 ## Repository contents
 
 | File | Description |
 |---|---|
 | [`joven_knowledge_substrate.md`](joven_knowledge_substrate.md) | Full paper (Markdown) |
-| [`joven_knowledge_substrate.pdf`](joven_knowledge_substrate.pdf) | PDF rendering |
 | [`hello_world.ipynb`](hello_world.ipynb) | Pedagogical notebook (~200 lines of Python) demonstrating typed nodes, Merkle DAG, delta chain, scoped recomputation, and fixed-point convergence |
-| [`architecture.mmd`](architecture.mmd) | Mermaid diagram of the tiered operation flow
+| [`architecture.mmd`](architecture.mmd) | Mermaid diagram of the tiered operation flow |
 | [`decay_entropy.ipynb`](decay_entropy.ipynb) | Demonstration notebook: activation decay dynamics, localized amplitude entropy, and contested-node detection in a directed epistemic subgraph |
 
 ## Production implementation
