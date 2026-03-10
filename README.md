@@ -30,8 +30,7 @@ This is a systems-layer intervention. We don't modify model internals; we extern
 | [`joven_knowledge_substrate.md`](joven_knowledge_substrate.md) | Full paper (Markdown) |
 | [`joven_knowledge_substrate.pdf`](joven_knowledge_substrate.pdf) | PDF rendering |
 | [`hello_world.ipynb`](hello_world.ipynb) | Pedagogical notebook (~200 lines of Python) demonstrating typed nodes, Merkle DAG, delta chain, scoped recomputation, and fixed-point convergence |
-| [`architecture.mmd`](architecture.mmd) | Mermaid diagram of the tiered operation flow |
-| [`ket_decay_entropy_spec.md`](ket_decay_entropy_spec.md) | Production change specification for the Ket Rust workspace: decay function interface, localized amplitude entropy scoring, WQS/Lagrangian implications, and MCP breaking changes |
+| [`architecture.mmd`](architecture.mmd) | Mermaid diagram of the tiered operation flow
 | [`decay_entropy.ipynb`](decay_entropy.ipynb) | Demonstration notebook: activation decay dynamics, localized amplitude entropy, and contested-node detection in a directed epistemic subgraph |
 
 ## Production implementation
