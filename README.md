@@ -21,6 +21,7 @@ This is a systems-layer intervention. We don't modify model internals; we extern
 | Fixed-point convergence via root hash stabilization | §2.5, §3 |
 | Structural provenance as a first-class property | §4 |
 | Demand-driven consistency and epistemic thermodynamics | §8 |
+| **Decay–quantum walk coupling as epistemic primitive (H-QW + H-IC)** | **§10** |
 
 ## Repository contents
 
@@ -31,6 +32,9 @@ This is a systems-layer intervention. We don't modify model internals; we extern
 | [`hello_world.ipynb`](hello_world.ipynb) | Pedagogical notebook (~200 lines of Python) demonstrating typed nodes, Merkle DAG, delta chain, scoped recomputation, and fixed-point convergence |
 | [`architecture.mmd`](architecture.mmd) | Mermaid diagram of the tiered operation flow |
 | [`overview.html`](overview.html) | 1-page visual overview for sharing |
+| [`ket_decay_quantum_walk_spec.md`](ket_decay_quantum_walk_spec.md) | Production change specification for the Ket Rust workspace: decay function interface, quantum amplitude representation, scoring dimension extensions, WQS/Lagrangian implications, and MCP breaking changes |
+| [`decay_quantum_walk.ipynb`](decay_quantum_walk.ipynb) | Demonstration notebook: classical vs. quantum walk under decay, interference-as-coherence at contested nodes, spectral gap analysis |
+| [`decay_quantum_walk_viz.html`](decay_quantum_walk_viz.html) | Interactive standalone visualization: live node activation heatmap, quantum amplitude arrows, coherence score, adjustable decay rates and topology |
 
 ## Production implementation
 
