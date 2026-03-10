@@ -1,4 +1,4 @@
-# Architectural Change Proposal: Decay Primitive with Localized Amplitude Entropy
+# Architectural Change Proposal: Decay and Structural Entropy Scoring
 
 **Status:** Draft — implementation specification
 **Theory home:** [`joven_knowledge_substrate.md §10`](joven_knowledge_substrate.md)
@@ -9,21 +9,13 @@
 
 ## 1. Overview and Motivation
 
-Section §10 of the theoretical framework proposes two coupled hypotheses:
+This document specifies two coupled additions to the Ket scoring architecture:
 
-- **H-QW**: In a substrate where node activations decay continuously, quantum walks are load-bearing because their interference pattern retains topological orientation information as individual activation magnitudes decay. Classical random walks lose this orientation as the landscape shifts.
+1. **Decay** (§3) — continuous activation decay applied on read, configurable per node. Nodes that have not been activated recently contribute less to traversal priority. This is the primary primitive.
 
-- **H-IC**: Destructive interference at nodes receiving contradictory high-activation paths from different directions functions as an intrinsic coherence mechanism — the substrate detects inconsistency geometrically.
+2. **Localized amplitude entropy** (§4) — a structural inconsistency signal computed from the distribution of decay-adjusted activations across a node's neighbors. A node where activation is spread uniformly across many neighbors has no dominant traversal direction; this indicates a structurally contested position in the knowledge subgraph and warrants Tier 2 investigation.
 
-**H-QW and H-IC remain theoretical propositions.** Full quantum walk mechanics — complex amplitude vectors, Hamiltonian construction, matrix exponentiation — are not currently implemented. The quantum walk framing is retained as the theoretical motivation for the scoring signal described in §4, but the implementation of that signal does not require quantum walk machinery.
-
-**What this document specifies:**
-
-1. **Decay** (§3) — continuous activation decay on read, configurable per node. This is fully implementable and constitutes the primary primitive.
-
-2. **Localized amplitude entropy** (§4) — a classically computable proxy for the structural inconsistency signal that H-IC predicts quantum walk interference would reveal. It replaces `quantum_coherence` as the practical scoring signal until a quantum walk engine is warranted by evidence.
-
-Quantum walk implementation is deferred to a future proposal contingent on empirical evidence that localized amplitude entropy is insufficient to capture the H-IC signal.
+The two features compose: entropy is computed over decay-adjusted activations, so a node with many neighbors that have all decayed to near-floor will correctly read as low-entropy (quiescent, not contested).
 
 ---
 
@@ -144,9 +136,9 @@ pub struct KetNode {
 
 ### 4.1 Motivation
 
-H-IC predicts that a node receiving contradictory high-activation paths from structurally distinct graph regions will exhibit destructive interference under a quantum walk. The observable correlate, without running a quantum walk, is that such a node's neighbor activation distribution is **high-entropy**: activation is spread roughly evenly across many neighbors rather than concentrated on a few, indicating no dominant traversal direction and potential structural inconsistency.
+A node that sits at the boundary between structurally distinct subgraph regions will have neighbors whose decay-adjusted activations are roughly equal — no single path dominates. This even distribution is the observable signature of a structurally contested node. A node in a well-structured region will have activation concentrated on the neighbors that form the dominant traversal path.
 
-Localized amplitude entropy operationalizes this as a purely classical, O(degree) computation over decay-adjusted neighbor activations.
+Localized amplitude entropy measures this directly: it is the normalized Shannon entropy of the decay-adjusted activation distribution across a node's neighbors. It is O(degree) to compute, requires no global graph state, and composes naturally with decay.
 
 ### 4.2 Definition
 
@@ -161,7 +153,7 @@ H_norm(v) = H(v) / log(|N(v)|)   (normalized to [0, 1]; 0 for |N(v)| = 1)
 ```
 
 - `H_norm(v) ≈ 0` — activation concentrated on one or few neighbors; clear dominant traversal direction
-- `H_norm(v) ≈ 1` — activation spread uniformly; no dominant direction; H-IC inconsistency signal
+- `H_norm(v) ≈ 1` — activation spread uniformly; no dominant direction; structurally contested
 
 Nodes with fewer than 2 neighbors receive `H_norm = 0.0` (no entropy signal possible).
 
@@ -201,12 +193,6 @@ pub fn localized_amplitude_entropy(neighbor_activations: &[f64]) -> f64 {
 }
 ```
 
-### 4.4 Relationship to Quantum Walk Hypothesis
-
-Localized amplitude entropy is a proxy, not an implementation, of H-IC. It captures the same structural signal — contested activation from multiple directions — using only classical information available at query time. It does not model phase, interference, or unitary evolution.
-
-If empirical evidence shows that high-entropy nodes systematically correspond to genuine structural inconsistencies in the substrate, and that the entropy signal fails to discriminate cases that phase-sensitive interference would resolve, a quantum walk engine becomes warranted. That determination requires data that does not yet exist.
-
 ---
 
 ## 5. New Scoring Dimensions (`ket-score`)
@@ -220,15 +206,15 @@ If empirical evidence shows that high-entropy nodes systematically correspond to
 **New dimension: `amplitude_entropy`**
 
 - **Definition:** `localized_amplitude_entropy(decay_adjusted_neighbor_activations)`
-- **Range:** `[0.0, 1.0]` — 0.0 = concentrated (coherent), 1.0 = uniform (contested)
+- **Range:** `[0.0, 1.0]` — 0.0 = concentrated, 1.0 = uniform
 - **Source:** O(degree) computation at query time
 - **Tier 1 action:** If `amplitude_entropy > entropy_threshold` (configurable, default 0.75), flag the node for Tier 2 consistency investigation
-- **Interpretation:** High entropy at node v means v's neighbors have roughly equal decay-adjusted activations — no dominant traversal direction. This is the classical proxy for the H-IC inconsistency signal.
+- **Interpretation:** High entropy at node v means activation is spread roughly equally across v's neighbors — no dominant traversal direction, structurally contested position
 
 **New dimension: `decay_adjusted_activation`**
 
 - **Definition:** `decayed_activation(node.activation, node.last_written, config)`
-- **Range:** `[activation_floor, ∞)` — replaces raw activation as the walk weight
+- **Range:** `[activation_floor, ∞)` — replaces raw activation as the traversal weight
 - **Source:** O(1) computation at query time from stored fields
 - **Tier 1 action:** Used as the primary activation signal for depth scoring, replacing stored activation
 - **Note:** The stored `activation` field remains unchanged; this dimension is a derived read-time value
@@ -257,7 +243,7 @@ pub struct NodeScore {
 
 impl NodeScore {
     /// Composite traversal priority: weighted combination of all dimensions.
-    /// High amplitude entropy raises investigation priority — consistent with H-IC.
+    /// High amplitude entropy raises investigation priority.
     pub fn traversal_priority(&self) -> f64 {
         let base = 0.3 * self.correctness
             + 0.2 * self.efficiency
@@ -265,7 +251,6 @@ impl NodeScore {
             + 0.2 * self.completeness
             + 0.2 * self.decay_adjusted_activation;
 
-        // High entropy = potentially inconsistent = higher investigation priority
         let entropy_modifier = if self.amplitude_entropy > 0.75 {
             1.5
         } else if self.amplitude_entropy > 0.5 {
@@ -406,12 +391,12 @@ Response:
 
 **Tool: `entropy_check`**
 
-Compute localized amplitude entropy at a target node, returning neighbor activation distribution.
+Compute localized amplitude entropy at a target node, returning the neighbor activation distribution.
 
 ```json
 {
   "name": "entropy_check",
-  "description": "Compute localized amplitude entropy at a node. High entropy signals contested activation from multiple directions — proxy for the H-IC inconsistency signal (§10.3).",
+  "description": "Compute localized amplitude entropy at a node. High entropy indicates activation spread evenly across neighbors with no dominant traversal direction — structurally contested position.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -502,9 +487,6 @@ Both new fields are always present (no nullable values in the common path).
 1. Implement `DecayAwareOptimizer` wrapping existing `WqsOptimizer`
 2. Add concavity detection and grid-search fallback
 3. Add `decay_variance` diagnostic metric
-
-### Future (not in scope): Quantum walk engine
-If empirical data establishes that `amplitude_entropy` fails to capture genuine H-IC signals, implement `QuantumWalkEngine` with complex amplitude tracking, Hamiltonian construction, and phase-sensitive interference scoring. That work requires a separate proposal with supporting evidence.
 
 ---
 
